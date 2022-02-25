@@ -157,5 +157,6 @@ class Design:
         hstry_designs, hstry_opt_cr = self.clear_histories(optimalities=hstry_opt_cr, designs=hstry_designs, design_mat=design_matrix)
         best_design = self.find_best_design(histories=hstry_opt_cr, designs=hstry_designs)
         model_matrix = self.gen_model_matrix(data=best_design)
-
+        
+        # test
         return best_design, model_matrix,  hstry_designs, hstry_opt_cr
