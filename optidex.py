@@ -82,29 +82,22 @@ class Design:
         return df
 
     @staticmethod
-    def clear_histories(design_matrix, epoch, all_opt_cr, max_bool=True):
+    def clear_histories(optimalities, designs, design_mat):
         """
-       :param pd.DataFrame design_matrix: Number of Experiments to design
-       :param int epoch: Number of random start to check
-       :param list all_opt_cr: Levels of factors
-       :param bool max_bool: Should the criterion be maximized (True) or minimizes (False)?
+       :param list design_matrix: Number of Experiments to design
+       :param list optimalities: Number of random start to check
+       :param pd.DataFrame design_mat: Should the criterion be maximized (True) or minimizes (False)?
 
        Run the coordinate exchange algorithm and produce the best model matrix, according to the criterion chosen, as well as a history of all other possible model matrices and the history of the selected criterion used.
        """
-        designs, histories = pd.DataFrame(), pd.DataFrame()
-        if 'epoch' not in design_matrix:
-            design_matrix['epoch'] = epoch
-        history = pd.DataFrame(all_opt_cr)
-        if max_bool:
-            history['max'] = history.iloc[:, 2:].max(axis=1)
-        else:
-            history['min'] = history.iloc[:, 2:].min(axis=1)
 
-        if 'epoch' not in history:
-            history['epoch'] = epoch
-        d = designs.append(design_matrix, ignore_index=True)
-        h = histories.append(history, ignore_index=True)
-        return d, h
+        hstry_designs = pd.DataFrame(designs, columns=['epoch', *list(design_mat.columns)])
+        hstry_opt_cr = pd.DataFrame(optimalities).rename(columns={0: 'epoch',
+                                                                  1: 'experiment',
+                                                                  2: 'feature'})
+        hstry_opt_cr['max'] = hstry_opt_cr.iloc[:, 3:].max(axis=1)
+
+        return hstry_designs, hstry_opt_cr
 
     @staticmethod
     def find_best_design(histories, designs, max_bool=True):
@@ -118,19 +111,24 @@ class Design:
         """
         if max_bool:
             per_epoch = histories.groupby('epoch')['max'].max()
-            return designs[designs['epoch'] == per_epoch.idxmax()].reset_index().iloc[:, 1:-1]
+            return designs[designs['epoch'] == per_epoch.idxmax()].reset_index().iloc[:, 2:]
         else:
             per_epoch = histories.groupby('epoch')['min'].min()
-            return designs[designs['epoch'] == per_epoch.idxmin()].reset_index().iloc[:, 1:-1]
+            return designs[designs['epoch'] == per_epoch.idxmin()].reset_index().iloc[:, 2:]
 
     @staticmethod
     def guards():
         pass
 
+    @staticmethod
+    def d_opt(matrix):
+        return np.linalg.det(matrix.T @ matrix)
+
     def fit(self):
         self.guards()
 
-        all_opt_cr = []  # data for each level
+        hstry_opt_cr = []  # all optimality criteria in a dataframe
+        hstry_designs = np.array([]).reshape((0, self.features + 1))  # all final designs in a dataframe
 
         for epoch in range(self.epochs):
             design_matrix = self.gen_random_design()
@@ -138,21 +136,26 @@ class Design:
                 for feat in range(self.features):
                     coordinate_opt_cr = []
                     for count, level in enumerate(self.levels[feat]):
+
                         # check all possible levels for the specific experiment, feature
                         design_matrix.iat[exp, feat] = level
                         model_matrix = self.gen_model_matrix(data=design_matrix)
-                        det = np.linalg.det(model_matrix.T @ model_matrix)
-                        coordinate_opt_cr.append(det)
 
-                    all_opt_cr.append([exp, feat, *coordinate_opt_cr])
+                        criterion = self.d_opt(model_matrix)
+                        coordinate_opt_cr.append(criterion)
+
+                    hstry_opt_cr.append([epoch, exp, feat, *coordinate_opt_cr])
                     # updated design_matrix
                     design_matrix.iat[exp, feat] = self.levels[feat][coordinate_opt_cr.index(max(coordinate_opt_cr))]
 
-
             # clean results of inner loops
-            designs, histories = self.clear_histories(design_matrix=design_matrix, epoch=epoch, all_opt_cr=all_opt_cr)
+            hstry_designs = np.append(hstry_designs,
+                                      np.hstack((np.array([epoch]*self.experiments).reshape(-1, 1),
+                                                 np.array(design_matrix))),
+                                      axis=0)
 
-        best_design = self.find_best_design(histories=histories, designs=designs)
+        hstry_designs, hstry_opt_cr = self.clear_histories(optimalities=hstry_opt_cr, designs=hstry_designs, design_mat=design_matrix)
+        best_design = self.find_best_design(histories=hstry_opt_cr, designs=hstry_designs)
         model_matrix = self.gen_model_matrix(data=best_design)
 
-        return model_matrix, best_design, designs, histories
+        return best_design, model_matrix,  hstry_designs, hstry_opt_cr
