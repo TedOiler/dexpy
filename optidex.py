@@ -84,7 +84,7 @@ class Design:
     @staticmethod
     def clear_histories(optimalities, designs, design_mat):
         """
-       :param list design_matrix: Number of Experiments to design
+       :param list designs: Number of Experiments to design
        :param list optimalities: Number of random start to check
        :param pd.DataFrame design_mat: Should the criterion be maximized (True) or minimizes (False)?
 
