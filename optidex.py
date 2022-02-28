@@ -3,10 +3,6 @@ import pandas as pd
 from sklearn.preprocessing import PolynomialFeatures  # TODO: implement what I need from this package
 
 
-class DesignParams:
-    pass
-
-
 class Design:
     """
     Class Docstring.
@@ -26,9 +22,8 @@ class Design:
         self.order = None
         self.interactions_only = None
         self.bias = None
-
         self.epochs = None
-        self.criterion = None
+        self.engine = None
 
     # ---------------DUNDER, GETTERS AND SETTERS FUNCTION---------------------------------------------------------------
     def __repr__(self):
@@ -46,15 +41,15 @@ class Design:
         self.interactions_only = interactions_only
         self.bias = bias
 
-    def set_algorithm(self, epochs, criterion):
+    def set_algorithm(self, epochs, engine):
         """
         :param int epochs: Number of random start to check
-        :param str criterion: What criterion to use for maximization. Includes ("A", "C", "D", "E", "S", "T", "G", "I", "V")
+        :param str engine: What engine to use for maximization. Includes ("A", "C", "D", "E", "S", "T", "G", "I", "V")
 
         Setter for algorithm parameters
         """
         self.epochs = epochs
-        self.criterion = criterion
+        self.engine = engine
 
     # ------------------------------------------------------------------------------------------------------------------
 
@@ -86,9 +81,9 @@ class Design:
         """
        :param list designs: Number of Experiments to design
        :param list optimalities: Number of random start to check
-       :param pd.DataFrame design_mat: Should the criterion be maximized (True) or minimizes (False)?
+       :param pd.DataFrame design_mat: Should the engine be maximized (True) or minimizes (False)?
 
-       Run the coordinate exchange algorithm and produce the best model matrix, according to the criterion chosen, as well as a history of all other possible model matrices and the history of the selected criterion used.
+       Run the coordinate exchange algorithm and produce the best model matrix, according to the engine chosen, as well as a history of all other possible model matrices and the history of the selected engine used.
        """
 
         hstry_designs = pd.DataFrame(designs, columns=['epoch', *list(design_mat.columns)])
@@ -104,7 +99,7 @@ class Design:
         """
         :param pd.DataFrame histories: Dataframe of all the histories per epoch
         :param pd.DataFrame designs: Dataframe of all the designs per epoch
-        :param bool max_bool: Should the criterion be maximized (True) or minimizes (False)?
+        :param bool max_bool: Should the engine be maximized (True) or minimizes (False)?
 
         Group the histories per epoch and getting the max. Then, the function uses that max index (best epoch) to retrieve the design of that epoch and save it as the best design.
         The function also changes behaviour according to the max_bool flag which is used to tell the function if we are searching for a maximum of a minimum.
@@ -120,9 +115,28 @@ class Design:
     def guards():
         pass
 
+    # Engines --------------------------------------------------------------------------------------------------------
     @staticmethod
     def d_opt(matrix):
+        # Priority: Estimation
+        # Maximize the determinant of the information matrix X'X of the design.
+        # This engine results in maximizing the differential Shannon information content of the parameter estimates.
         return np.linalg.det(matrix.T @ matrix)
+
+    @staticmethod
+    def a_opt(matrix):
+        # Priority: Estimation
+        # Maximizes the trace of the information matrix.
+        # This engine results in minimizing the average variance of the estimates of the regression coefficients.
+        return np.trace(matrix.T @ matrix)
+
+    @staticmethod
+    def e_opt(matrix):
+        # Priority: Estimation
+        # Maximizes the minimum eigenvalue of the information matrix.
+        w, v = np.linalg.eig(matrix.T @ matrix)
+        w.sort()
+        return w[0]
 
     def fit(self):
         self.guards()
@@ -136,13 +150,12 @@ class Design:
                 for feat in range(self.features):
                     coordinate_opt_cr = []
                     for count, level in enumerate(self.levels[feat]):
-
                         # check all possible levels for the specific experiment, feature
                         design_matrix.iat[exp, feat] = level
                         model_matrix = self.gen_model_matrix(data=design_matrix)
 
-                        criterion = self.d_opt(model_matrix)
-                        coordinate_opt_cr.append(criterion)
+                        engine = self.d_opt(model_matrix)
+                        coordinate_opt_cr.append(engine)
 
                     hstry_opt_cr.append([epoch, exp, feat, *coordinate_opt_cr])
                     # updated design_matrix
@@ -150,13 +163,26 @@ class Design:
 
             # clean results of inner loops
             hstry_designs = np.append(hstry_designs,
-                                      np.hstack((np.array([epoch]*self.experiments).reshape(-1, 1),
+                                      np.hstack((np.array([epoch] * self.experiments).reshape(-1, 1),
                                                  np.array(design_matrix))),
                                       axis=0)
 
-        hstry_designs, hstry_opt_cr = self.clear_histories(optimalities=hstry_opt_cr, designs=hstry_designs, design_mat=design_matrix)
+        hstry_designs, hstry_opt_cr = self.clear_histories(optimalities=hstry_opt_cr, designs=hstry_designs,
+                                                           design_mat=design_matrix)
         best_design = self.find_best_design(histories=hstry_opt_cr, designs=hstry_designs)
         model_matrix = self.gen_model_matrix(data=best_design)
-        
-        # test
-        return best_design, model_matrix,  hstry_designs, hstry_opt_cr
+
+        return best_design, model_matrix, hstry_designs, hstry_opt_cr
+
+
+class Optimal(Design):
+    def __init__(self, experiments, levels, order, interactions_only, bias, epochs, engine):
+        super().__init__(experiments, levels)
+        self.order = order
+        self.interactions_only = interactions_only
+        self.bias = bias
+        self.epochs = epochs
+        self.engine = engine
+
+    def test(self):
+        print(self.experiments)
