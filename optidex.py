@@ -19,16 +19,32 @@ class Design:
         self.levels = levels
         self.features = len(levels.keys())
 
-        self.order = None
-        self.interactions_only = None
-        self.bias = None
-        self.epochs = None
-        self.engine = None
-
-    # ---------------DUNDER, GETTERS AND SETTERS FUNCTION---------------------------------------------------------------
+    # DUNDER, GETTERS AND SETTERS --------------------------------------------------------------------------------------
     def __repr__(self):
         return f"Design(experiments={self.experiments}, levels={self.levels})"
 
+    def set_experiments(self, experiments):
+        self.experiments = experiments
+
+    def set_levels(self, levels):
+        self.levels = levels
+
+
+class Simple(Design):
+    pass
+
+
+class Optimal(Design):
+    def __init__(self, experiments, levels, order=None, interactions_only=None, bias=None, epochs=None, engine=None):
+        super().__init__(experiments, levels)
+
+        self.order = order
+        self.interactions_only = interactions_only
+        self.bias = bias
+        self.epochs = epochs
+        self.engine = engine
+
+    # SETTERS ----------------------------------------------------------------------------------------------------------
     def set_model(self, order, interactions_only=False, bias=True):
         """
         :param int order: Order of the polynomial (1-main effects, 2-quadratic effects, ...)
@@ -51,8 +67,7 @@ class Design:
         self.epochs = epochs
         self.engine = engine
 
-    # ------------------------------------------------------------------------------------------------------------------
-
+    # HELPERS ----------------------------------------------------------------------------------------------------------
     def gen_random_design(self) -> pd.DataFrame:
         """
         Generate a random starting design matrix.
@@ -115,7 +130,7 @@ class Design:
     def guards():
         pass
 
-    # Engines --------------------------------------------------------------------------------------------------------
+    # ENGINES ----------------------------------------------------------------------------------------------------------
     @staticmethod
     def d_opt(matrix):
         # Priority: Estimation
@@ -138,6 +153,7 @@ class Design:
         w.sort()
         return w[0]
 
+    # FIT --------------------------------------------------------------------------------------------------------------
     def fit(self):
         self.guards()
 
@@ -175,14 +191,45 @@ class Design:
         return best_design, model_matrix, hstry_designs, hstry_opt_cr
 
 
-class Optimal(Design):
-    def __init__(self, experiments, levels, order, interactions_only, bias, epochs, engine):
-        super().__init__(experiments, levels)
-        self.order = order
-        self.interactions_only = interactions_only
-        self.bias = bias
-        self.epochs = epochs
-        self.engine = engine
+# BASIS ----------------------------------------------------------------------------------------------------------------
+def swish(t, c):
+    return (t+c)/(1+np.exp(c-t))
 
-    def test(self):
-        print(self.experiments)
+
+def relu(t, c):
+    return max(0, t + c)
+
+
+def leaky_relu(t, c, h):
+    return max(h * (t + c), t + c)
+
+
+def selu(t, c):
+    return np.log(1 + np.exp(t+c))
+
+
+def softplus(t, c):
+    return np.log(1 + np.exp(t+c))
+
+
+def tanh(t, c):
+    return (np.exp(t+c) - np.exp(c-t))/(np.exp(t+c) + np.exp(c-t))
+
+
+def step(t, low, high):
+    return ((t >= low) & (t <= high))*t
+
+
+def sigmoid(t, c):
+    return 1/(1+np.exp(-t-c))
+
+
+def gaussian_k(t, c, h):
+    return np.exp(-(h(t+c))**2)
+
+
+class Functional(Optimal):
+    def __init__(self, experiments, levels, basis, order=None, interactions_only=None, bias=None, epochs=None, engine=None):
+        super().__init__(experiments, levels, order, interactions_only, bias, epochs, engine)
+        self.basis = basis
+
