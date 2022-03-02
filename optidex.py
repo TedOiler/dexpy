@@ -1,6 +1,7 @@
-import numpy as np
 import pandas as pd
+import numpy as np
 from sklearn.preprocessing import PolynomialFeatures  # TODO: implement what I need from this package
+from basis import *
 
 
 class Design:
@@ -31,7 +32,26 @@ class Design:
 
 
 class Simple(Design):
-    pass
+    def __init__(self, experiments, levels):
+        super().__init__(experiments, levels)
+
+    def fact_full(self):
+        pass
+
+    def fact_fract(self):
+        pass
+
+    def pd_des(self):
+        pass
+
+    def bb_des(self):
+        pass
+
+    def cc_des(self):
+        pass
+
+    def latin_hyper(self):
+        pass
 
 
 class Optimal(Design):
@@ -191,45 +211,18 @@ class Optimal(Design):
         return best_design, model_matrix, hstry_designs, hstry_opt_cr
 
 
-# BASIS ----------------------------------------------------------------------------------------------------------------
-def swish(t, c):
-    return (t+c)/(1+np.exp(c-t))
-
-
-def relu(t, c):
-    return max(0, t + c)
-
-
-def leaky_relu(t, c, h):
-    return max(h * (t + c), t + c)
-
-
-def selu(t, c):
-    return np.log(1 + np.exp(t+c))
-
-
-def softplus(t, c):
-    return np.log(1 + np.exp(t+c))
-
-
-def tanh(t, c):
-    return (np.exp(t+c) - np.exp(c-t))/(np.exp(t+c) + np.exp(c-t))
-
-
-def step(t, low, high):
-    return ((t >= low) & (t <= high))*t
-
-
-def sigmoid(t, c):
-    return 1/(1+np.exp(-t-c))
-
-
-def gaussian_k(t, c, h):
-    return np.exp(-(h(t+c))**2)
-
-
 class Functional(Optimal):
-    def __init__(self, experiments, levels, basis, order=None, interactions_only=None, bias=None, epochs=None, engine=None):
+    def __init__(self, experiments, levels, f_basis, b_basis, order=None, interactions_only=None, bias=None, epochs=None, engine=None):
         super().__init__(experiments, levels, order, interactions_only, bias, epochs, engine)
-        self.basis = basis
+        self.f_basis = f_basis
+        self.b_basis = b_basis
+        self.f_features = len(f_basis.keys())
 
+    def set_param_matrix(self):
+        pass
+
+    def set_model_matrix(self):
+        pass
+
+    def fit_functional(self):
+        pass
