@@ -2,8 +2,8 @@ import numpy as np
 import sympy as smp
 
 
-def evaluate(vec1, vec2, symbol=smp.symbols('t'), lower=0, upper=1):
-    return float(smp.integrate(vec1 @ vec2.T, (symbol, lower, upper)).evalf())
+def evaluate(c_x, b_x, symbol=smp.symbols('t'), lower=0, upper=1):
+    return float(smp.Matrix(c_x @ b_x.T).integrate((symbol, lower, upper)).evalf())
 
 
 # BASIS ----------------------------------------------------------------------------------------------------------------
