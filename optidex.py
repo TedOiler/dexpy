@@ -208,7 +208,6 @@ class Optimal(Design):
         best_design = self.find_best_design(histories=hstry_opt_cr, designs=hstry_designs)
         model_matrix = self.gen_model_matrix(data=best_design)
 
-<<<<<<< Updated upstream
         return best_design, model_matrix, hstry_designs, hstry_opt_cr
 
 
@@ -227,6 +226,3 @@ class Functional(Optimal):
 
     def fit_functional(self):
         pass
-=======
-        return best_design, model_matrix,  hstry_designs, hstry_opt_cr
->>>>>>> Stashed changes
