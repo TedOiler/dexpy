@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import PolynomialFeatures  # TODO: implement what I need from this package
 from basis import *
+import basis_numeric as bn
 
 
 class Design:
@@ -31,7 +32,7 @@ class Design:
         self.levels = levels
 
 
-class Simple(Design):
+class Traditional(Design):
     def __init__(self, experiments, levels):
         super().__init__(experiments, levels)
 
@@ -211,12 +212,33 @@ class Optimal(Design):
         return best_design, model_matrix, hstry_designs, hstry_opt_cr
 
 
-class Functional(Optimal):
-    def __init__(self, experiments, levels, f_basis, b_basis, order=None, interactions_only=None, bias=None, epochs=None, engine=None):
-        super().__init__(experiments, levels, order, interactions_only, bias, epochs, engine)
+class Functional:
+    def __init__(self, experiments, f_basis, f_centers, b_basis, b_centers, t, epochs=None, engine=None):
+
+        self.experiments = experiments
         self.f_basis = f_basis
+        self.f_centers = f_centers
         self.b_basis = b_basis
+        self.b_centers = b_centers
         self.f_features = len(f_basis.keys())
+        self.t = t
+        self.epochs = epochs
+        self.engine = engine
+
+        self.engine_dict = {
+            "d-opt": "d-opt",
+            "c-opt": "c-opt",
+            "a-opt": "a-opt"
+        }
+        self.basis_dict = {
+            "step": bn.step,
+            "relu": bn.relu,
+            "leaky_relu": bn.leaky_relu,
+            "softplus": bn.softplus,
+            "softminus": bn.softminus,
+            "tanh": bn.tanh,
+            "sigmoid": bn.sigmoid
+        }
 
     def set_param_matrix(self):
         pass
@@ -225,4 +247,10 @@ class Functional(Optimal):
         pass
 
     def fit_functional(self):
-        pass
+        self.guards()
+        for epoch in range(self.epochs):
+            design_matrix = self.gen_random_design()
+            for exp in range(self.experiments):
+                for feat in range(self.features):
+                    print(design_matrix)
+        return 0
