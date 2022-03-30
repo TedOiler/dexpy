@@ -186,7 +186,7 @@ class Optimal(Design):
             for exp in range(self.experiments):
                 for feat in range(self.features):
                     coordinate_opt_cr = []
-                    for count, level in enumerate(self.levels[feat]):
+                    for _, level in enumerate(self.levels[feat]):
                         # check all possible levels for the specific experiment, feature
                         design_matrix.iat[exp, feat] = level
                         model_matrix = self.gen_model_matrix(data=design_matrix)
