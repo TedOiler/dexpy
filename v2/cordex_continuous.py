@@ -2,9 +2,10 @@ import numpy as np
 from tqdm import tqdm  # for progress bar
 from scipy.optimize import minimize
 from gen_rand_design import gen_rand_design  # custom function for generating random designs
+from cordex_discrete import cordex_discrete
 
 
-def cordex_continuous(runs, feats, J_cb=None, epochs=1000, method='Nelder-Mead', optimality='D'):
+def cordex_continuous(runs, feats, J_cb=None, epochs=1000, method='Nelder-Mead', optimality='D', random_start=True, disable_bar=False):
     """
     Uses a coordinate descent algorithm to find the design with the minimum D-optimality (or maximum A-optimality)
     criterion value for a continuous regression problem.
@@ -83,8 +84,12 @@ def cordex_continuous(runs, feats, J_cb=None, epochs=1000, method='Nelder-Mead',
 
     ones = np.array([1] * runs).reshape(-1, 1)  # create a column vector of ones with shape (runs, 1)
     epochs_list = []
-    for epoch in tqdm(range(epochs)):
-        Gamma = gen_rand_design(runs, feats)
+    for epoch in tqdm(range(epochs), disable=disable_bar):
+        if random_start:
+            Gamma = gen_rand_design(runs=runs, feats=feats)
+        else:
+            Gamma, _ = cordex_discrete(runs=runs, feats=feats, levels=[-1, 0, 1], epochs=5, optimality=optimality, J_cb=J_cb, disable_bar=True)
+
         for run in range(runs):
             for feat in range(feats):
                 x0 = Gamma[run, feat]  # set initial guess for optimization to current value of Gamma
