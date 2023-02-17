@@ -15,11 +15,12 @@ suppress_botorch_warnings(True)
 
 from gen_rand_design import gen_rand_design
 from cordex_continuous import cordex_continuous
+from cordex_discrete import cordex_discrete
 
 tkwargs = {'dtype': torch.float64, 'device': 'cpu'}
 
 
-def gen_next_point(X, y, best_y, n_exp, acq_f='EI', inequality_constraints=None):
+def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None):
     """
     Generates the next set of candidates for Bayesian optimization using the acquisition function specified.
 
@@ -28,7 +29,7 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='EI', inequality_constraints=None)
         y (torch.Tensor): Tensor containing the output values of the training data.
         best_y (float): The best output value observed so far.
         n_exp (int): The number of candidates to generate.
-        acq_f (str, optional): The acquisition function to use. Can be one of 'EI', 'PI', or 'UCB'. Defaults to 'EI'.
+        acq_f (str, optional): The acquisition function to use. Can be one of 'EI', 'PI', or 'UCB'. Defaults to 'UCB'.
         inequality_constraints (tuple, optional): A tuple of callables defining the inequality constraints. Defaults to None.
 
     Returns:
@@ -133,7 +134,7 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
             raise ValueError(f"Invalid criterion {optimality}. "
                              "Criterion should be one of 'D', 'A', 'E', or 'I'.")
 
-    def get_initial_data_cordex():
+    def get_initial_data_cordex_cont():
         """
         Generates initial data points for Bayesian optimization using the continuous Cordex algorithm.
 
@@ -152,17 +153,27 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
 
         The highest objective function value in y is returned as the 'best_y' value.
         """
-        X, best_cr = cordex_continuous(runs=runs,
-                                       feats=J_cb.shape[0],
-                                       epochs=ceil(J_cb.shape[0] / 10),  # Epochs are the number of parameters over 10.
-                                       # (could be something more sophisticated)
-                                       method=initialization_method,
-                                       optimality=optimality)
+        X, _ = cordex_continuous(runs=runs,
+                                 feats=J_cb.shape[0],
+                                 epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
+                                 method=initialization_method,
+                                 J_cb=J_cb,
+                                 optimality=optimality)
         X_flat = X.flatten().reshape(1, runs * feats)
         y = objective(X_flat, optimality=optimality)
-        print(y)
+        best_y = y.max().item()
+        return torch.tensor(X_flat), torch.tensor(y).reshape(-1, 1), best_y
+
+    def get_initial_data_cordex_disc():
+        X, best_cr = cordex_discrete(runs=runs,
+                                     feats=J_cb.shape[0],
+                                     epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
+                                     optimality=optimality,
+                                     levels=[-1, 1],
+                                     J_cb=J_cb)
+        X_flat = X.flatten().reshape(1, runs * feats)
+        y = objective(X_flat, optimality=optimality)
         best_y = best_cr
-        print(best_y)
         return torch.tensor(X_flat), torch.tensor(y).reshape(-1, 1), best_y
 
     def get_initial_data():
@@ -183,10 +194,16 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
         best_y = y.max().item()
         return torch.tensor(X_flat), torch.tensor(y).reshape(-1, 1), best_y
 
-    initialization_function = get_initial_data if initialization_method is None else get_initial_data_cordex
+    # Choose wich function will generate the data according to user input
+    if initialization_method == 'Discrete':
+        initialization_function = get_initial_data_cordex_disc
+    elif initialization_method is not None:
+        initialization_function = get_initial_data_cordex_cont
+    else:
+        initialization_function = get_initial_data
+
     X_init, y_init, best_y_init = initialization_function()
-    epochs_list = []
-    # for i in tqdm(range(epochs)):
+    epochs_list = [[-1, best_y_init, X_init]]
     for epoch in tqdm(range(epochs)):
         try:
             new_candidates = gen_next_point(X=X_init, y=y_init, best_y=best_y_init, n_exp=n_exp, acq_f=acq_f,
@@ -195,10 +212,10 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
             # delete last row since it is the one that cased the problem
             X_init = X_init[:-1, :]
             y_init = y_init[:-1, :]
+            print('deleted')
             continue
         new_results = objective(X=new_candidates, optimality=optimality)
         new_results = torch.Tensor(new_results.reshape(-1, 1))
-
         X_init = torch.cat([X_init, new_candidates])
         y_init = torch.cat([y_init, new_results])
         best_y_init = y_init.max().item()

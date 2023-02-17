@@ -32,7 +32,7 @@ from gen_rand_design import gen_rand_design
 # used to show the progress of a loop.
 
 
-def cordex_discrete(runs, feats, levels, epochs, optimality='A', J_cb=None):
+def cordex_discrete(runs, feats, levels, epochs, optimality='A', J_cb=None) -> object:
     """
     Generates a discrete design matrix that optimizes a given criterion.
 
