@@ -7,17 +7,18 @@ from botorch import fit_gpytorch_model
 from botorch.acquisition.monte_carlo import qExpectedImprovement
 from botorch.acquisition.monte_carlo import qUpperConfidenceBound
 from botorch.acquisition.monte_carlo import qProbabilityOfImprovement
+from botorch.acquisition.monte_carlo import qNoisyExpectedImprovement
 from botorch.optim import optimize_acqf
 from botorch.settings import suppress_botorch_warnings
-from math import ceil
-
-suppress_botorch_warnings(True)
-
+import warnings
 from gen_rand_design import gen_rand_design
 from cordex_continuous import cordex_continuous
 from cordex_discrete import cordex_discrete
 
-tkwargs = {'dtype': torch.float64, 'device': 'cpu'}
+suppress_botorch_warnings(True)
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+tkwargs = {'dtype': torch.double, 'device': device}
 
 
 def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None):
@@ -46,10 +47,12 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
 
     if acq_f == 'EI':
         acq_f = qExpectedImprovement(model=model, best_f=best_y)
+    elif acq_f == 'NEI':
+        acq_f = qNoisyExpectedImprovement(model=model, X_baseline=X)
     elif acq_f == 'PI':
         acq_f = qProbabilityOfImprovement(model=model, best_f=best_y)
     elif acq_f == 'UCB':
-        acq_f = qUpperConfidenceBound(model=model, beta=0.3)
+        acq_f = qUpperConfidenceBound(model=model, beta=1e-8)
     else:
         raise ValueError(f"Invalid acquisition function {acq_f}. "
                          "acq_f should be one of 'EI', 'PI', or 'UCB'.")
@@ -58,7 +61,7 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
                                   bounds=bounds,
                                   q=n_exp,
                                   num_restarts=100,
-                                  raw_samples=1000,
+                                  raw_samples=2000,
                                   options={"batch_limit": 5, "maxiter": 200},
                                   inequality_constraints=inequality_constraints)
     return candidates
@@ -153,7 +156,7 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
 
         The highest objective function value in y is returned as the 'best_y' value.
         """
-        X, _ = cordex_continuous(runs=runs,
+        X, _, _ = cordex_continuous(runs=runs,
                                  feats=J_cb.shape[0],
                                  epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
                                  method=initialization_method,
@@ -165,15 +168,18 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
         return torch.tensor(X_flat), torch.tensor(y).reshape(-1, 1), best_y
 
     def get_initial_data_cordex_disc():
-        X, best_cr = cordex_discrete(runs=runs,
+        X, best_cr, _ = cordex_discrete(runs=runs,
                                      feats=J_cb.shape[0],
-                                     epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
+                                     epochs=5,  # Epochs could also be ceil(J_cb.shape[0]/10)
                                      optimality=optimality,
                                      levels=[-1, 1],
                                      J_cb=J_cb)
         X_flat = X.flatten().reshape(1, runs * feats)
         y = objective(X_flat, optimality=optimality)
-        best_y = best_cr
+        if optimality in ['A', 'E']:
+            best_y = -best_cr
+        else:
+            best_y = best_cr
         return torch.tensor(X_flat), torch.tensor(y).reshape(-1, 1), best_y
 
     def get_initial_data():
@@ -194,7 +200,7 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
         best_y = y.max().item()
         return torch.tensor(X_flat), torch.tensor(y).reshape(-1, 1), best_y
 
-    # Choose wich function will generate the data according to user input
+    # Choose which function will generate the data according to user input
     if initialization_method == 'Discrete':
         initialization_function = get_initial_data_cordex_disc
     elif initialization_method is not None:
@@ -212,7 +218,6 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
             # delete last row since it is the one that cased the problem
             X_init = X_init[:-1, :]
             y_init = y_init[:-1, :]
-            print('deleted')
             continue
         new_results = objective(X=new_candidates, optimality=optimality)
         new_results = torch.Tensor(new_results.reshape(-1, 1))
@@ -226,5 +231,5 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
     Best_des = epochs_list[epochs_max_id, 2]
     Opt_best = epochs_list[epochs_max_id, 1]
     # Correct criterion sign
-    Opt_best = -Opt_best if optimality not in ['D', 'I'] else Opt_best
-    return np.array(Best_des).reshape(runs, feats), Opt_best
+    Opt_best = -Opt_best if optimality in ['A', 'E'] else Opt_best
+    return np.array(Best_des).reshape(runs, feats), Opt_best, epochs_list

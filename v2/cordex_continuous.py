@@ -80,7 +80,7 @@ def cordex_continuous(runs, feats, J_cb=None, epochs=1000, method='Nelder-Mead',
 
     if method not in ['Nelder-Mead', 'Powell', 'TNC', 'L-BFGS-B']:
         raise ValueError(f"Invalid method {method}. "
-                         "Method should be one of 'Nealder-Mead', 'Powell', 'TNC', or 'L-BFGS-B'.")
+                         "Method should be one of 'Nelder-Mead', 'Powell', 'TNC', or 'L-BFGS-B'.")
 
     ones = np.array([1] * runs).reshape(-1, 1)  # create a column vector of ones with shape (runs, 1)
     epochs_list = []
@@ -88,7 +88,7 @@ def cordex_continuous(runs, feats, J_cb=None, epochs=1000, method='Nelder-Mead',
         if random_start:
             Gamma = gen_rand_design(runs=runs, feats=feats)
         else:
-            Gamma, _ = cordex_discrete(runs=runs, feats=feats, levels=[-1, 0, 1], epochs=5, optimality=optimality, J_cb=J_cb, disable_bar=True)
+            Gamma, _, _ = cordex_discrete(runs=runs, feats=feats, levels=[-1, 0, 1], epochs=5, optimality=optimality, J_cb=J_cb, disable_bar=True)
 
         for run in range(runs):
             for feat in range(feats):
@@ -102,4 +102,4 @@ def cordex_continuous(runs, feats, J_cb=None, epochs=1000, method='Nelder-Mead',
     Opt_best = epochs_list[epochs_list[:, 1].argmin(), 1]
     # Correct criterion sign
     Opt_best = -Opt_best if optimality in ['D', 'I'] else Opt_best
-    return Design_best, Opt_best
+    return Design_best, Opt_best, epochs_list

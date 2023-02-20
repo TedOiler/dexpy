@@ -125,4 +125,4 @@ def cordex_discrete(runs, feats, levels, epochs, optimality='A', J_cb=None, disa
     Opt_best = epochs_list[epochs_list[:, 1].argmin(), 1]
     # Correct criterion sign
     Opt_best = -Opt_best if optimality in ['D', 'I'] else Opt_best
-    return Design_best, Opt_best
+    return Design_best, Opt_best, epochs_list
