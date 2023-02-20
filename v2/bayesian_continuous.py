@@ -39,7 +39,7 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
     Raises:
         ValueError: If the specified acquisition function is not valid.
     """
-    bounds = torch.Tensor([[-1] * X.shape[1], [1] * X.shape[1]])
+    bounds = torch.Tensor([[-1] * X.shape[1], [1] * X.shape[1]], **tkwargs)
 
     model = SingleTaskGP(X, y)
     mll = ExactMarginalLogLikelihood(model.likelihood, model)
@@ -157,11 +157,11 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
         The highest objective function value in y is returned as the 'best_y' value.
         """
         X, _, _ = cordex_continuous(runs=runs,
-                                 feats=J_cb.shape[0],
-                                 epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
-                                 method=initialization_method,
-                                 J_cb=J_cb,
-                                 optimality=optimality)
+                                    feats=J_cb.shape[0],
+                                    epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
+                                    method=initialization_method,
+                                    J_cb=J_cb,
+                                    optimality=optimality)
         X_flat = X.flatten().reshape(1, runs * feats)
         y = objective(X_flat, optimality=optimality)
         best_y = y.max().item()
@@ -169,11 +169,11 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
 
     def get_initial_data_cordex_disc():
         X, best_cr, _ = cordex_discrete(runs=runs,
-                                     feats=J_cb.shape[0],
-                                     epochs=5,  # Epochs could also be ceil(J_cb.shape[0]/10)
-                                     optimality=optimality,
-                                     levels=[-1, 1],
-                                     J_cb=J_cb)
+                                        feats=J_cb.shape[0],
+                                        epochs=5,  # Epochs could also be ceil(J_cb.shape[0]/10)
+                                        optimality=optimality,
+                                        levels=[-1, 1],
+                                        J_cb=J_cb)
         X_flat = X.flatten().reshape(1, runs * feats)
         y = objective(X_flat, optimality=optimality)
         if optimality in ['A', 'E']:
