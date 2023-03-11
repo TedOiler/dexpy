@@ -39,7 +39,7 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
     Raises:
         ValueError: If the specified acquisition function is not valid.
     """
-    bounds = torch.Tensor([[-1] * X.shape[1], [1] * X.shape[1]], **tkwargs)
+    bounds = torch.Tensor([[-1] * X.shape[1], [1] * X.shape[1]])
 
     model = SingleTaskGP(X, y)
     mll = ExactMarginalLogLikelihood(model.likelihood, model)
@@ -52,7 +52,7 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
     elif acq_f == 'PI':
         acq_f = qProbabilityOfImprovement(model=model, best_f=best_y)
     elif acq_f == 'UCB':
-        acq_f = qUpperConfidenceBound(model=model, beta=1e-8)
+        acq_f = qUpperConfidenceBound(model=model, beta=0.1)
     else:
         raise ValueError(f"Invalid acquisition function {acq_f}. "
                          "acq_f should be one of 'EI', 'PI', or 'UCB'.")
@@ -60,8 +60,9 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
     candidates, _ = optimize_acqf(acq_function=acq_f,
                                   bounds=bounds,
                                   q=n_exp,
+                                  fixed_features_list=[],
                                   num_restarts=100,
-                                  raw_samples=2000,
+                                  raw_samples=512,
                                   options={"batch_limit": 5, "maxiter": 200},
                                   inequality_constraints=inequality_constraints)
     return candidates
@@ -173,7 +174,8 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
                                         epochs=5,  # Epochs could also be ceil(J_cb.shape[0]/10)
                                         optimality=optimality,
                                         levels=[-1, 1],
-                                        J_cb=J_cb)
+                                        J_cb=J_cb,
+                                        disable_bar=True)
         X_flat = X.flatten().reshape(1, runs * feats)
         y = objective(X_flat, optimality=optimality)
         if optimality in ['A', 'E']:

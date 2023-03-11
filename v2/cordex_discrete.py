@@ -32,7 +32,7 @@ from gen_rand_design import gen_rand_design
 # used to show the progress of a loop.
 
 
-def cordex_discrete(runs, feats, levels, epochs, optimality='A', J_cb=None, disable_bar=False) -> object:
+def cordex_discrete(runs, feats, n_f, n_x, levels, epochs, optimality='A', J_cb=None, disable_bar=False) -> object:
     """
     Generates a discrete design matrix that optimizes a given criterion.
 
@@ -106,7 +106,7 @@ def cordex_discrete(runs, feats, levels, epochs, optimality='A', J_cb=None, disa
     ones = np.array([1] * runs).reshape(-1, 1)  # [n x 1]
     epochs_list = []
     for epoch in tqdm(range(epochs), disable=disable_bar):
-        Gamma = gen_rand_design(runs=runs, feats=feats)  # [n x n_x]
+        Gamma = gen_rand_design(runs=runs, feats=feats, num_f=num_f, num_x=num_x)  # [n x n_x]
         for run in range(runs):
             for feat in range(feats):
                 best_level_list = []

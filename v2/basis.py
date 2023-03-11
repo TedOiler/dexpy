@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def indicator(t, l, u):
     """
     Computes an indicator function with lower bound l and upper bound u. The output is 1 if the input t is in the range
@@ -48,3 +51,12 @@ def polynomial(t, p=0):
         float: The value of the polynomial t^p evaluated at t.
     """
     return t ** p
+
+
+def fourier(t, p):
+    if p == 0:
+        return np.sqrt(1 / 2)
+    elif p % 2 == 0:
+        return np.cos(p * np.pi * t)
+    else:
+        return np.sin((p - 1) * np.pi * t)

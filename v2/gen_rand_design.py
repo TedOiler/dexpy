@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def gen_rand_design(runs: int, feats: int, low: int = -1, high: int = 1) -> np.ndarray:
+def gen_rand_design(runs: int, feats: int, num_x, num_f, low: int = -1, high: int = 1) -> np.ndarray:
     """
     Generates a random `runs` x `feats` matrix with each element uniformly distributed between -1 and 1.
 
