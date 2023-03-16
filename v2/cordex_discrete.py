@@ -103,24 +103,35 @@ def cordex_discrete(runs, f_list, scalars, levels, epochs, optimality='A', J_cb=
             raise ValueError(f"Invalid criterion {optimality}. "
                              "Criterion should be one of 'D', 'A', 'E', or 'I'.")
 
+    def check(obj):
+        if optimality in ['A']:
+            return 0 < obj < Best_obj
+        else:
+            return obj < 0 < Best_obj
+
+    Best_des = None
+    Best_obj = np.inf
     f_coeffs = sum(f_list)+1
     ones = np.ones((runs, 1))
-    epochs_list = []
 
-    for epoch in tqdm(range(epochs), disable=disable_bar):
-        Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)  # [n x n_x]
-        Model_mat = np.hstack((Gamma_, X_))
-        for run in range(runs):
-            for feat in range(f_coeffs + scalars - 1):
-                best_level_list = []
-                for level in levels:
-                    Model_mat[run, feat] = level
-                    objective_value = objective()
-                    best_level_list.append(objective_value)
-                best_level_index = best_level_list.index(min(best_level_list))
-                Model_mat[run, feat] = levels[best_level_index]
+    while Best_obj == np.inf:
+        for _ in tqdm(range(epochs), disable=disable_bar):
+            Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)  # [n x n_x]
+            Model_mat = np.hstack((Gamma_, X_))
+            for run in range(runs):
+                for feat in range(f_coeffs + scalars - 1):
+                    best_level_list = []
+                    for level in levels:
+                        Model_mat[run, feat] = level
+                        objective_value = objective()
+                        best_level_list.append(objective_value)
+                    best_level_index = best_level_list.index(min(best_level_list))
+                    Model_mat[run, feat] = levels[best_level_index]
 
-        # For each epoch, compute the optimality criterion to keep in an array.
-        objective_value = objective()
-        epochs_list.append([epoch, objective_value, Model_mat])
-    return find_best_design(np.array(epochs_list, dtype=object), optimality)
+            # For each epoch, compute the optimality criterion to keep in an array.
+            objective_value = objective()
+            if check(objective_value):
+                Best_obj = objective_value
+                Best_des = Model_mat
+
+    return Best_des, np.abs(Best_obj)

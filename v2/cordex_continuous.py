@@ -5,7 +5,8 @@ from gen_rand_design import gen_rand_design_m  # custom function for generating 
 from cordex_discrete import cordex_discrete
 
 
-def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None, smooth_pen=0, ridge_pen=0, epochs=1000,
+def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None, smooth_pen=0, ridge_pen=0,
+                      epochs=1000,
                       method='L-BFGS-B', random_start=False, disable_bar=True, final_pass=False):
     """
     Uses a coordinate descent algorithm to find the design with the minimum D-optimality (or maximum A-optimality)
@@ -56,26 +57,30 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
             ValueError: If the specified optimality criterion is not one of 'D' or 'A'.
         """
 
+        def MATRIX_calculation():
+            if R_0 is None and ridge_pen == 0:
+                P = np.identity(Mu.shape[0])
+            else:
+                if R_0 is None:
+                    P = Mu + ridge_pen * np.identity(Mu.shape[0])
+                elif ridge_pen == 0:
+                    P = Mu + smooth_pen * R_0
+                else:
+                    P = Mu + smooth_pen * R_0 + ridge_pen * np.identity(Mu.shape[0])
+            try:
+                P_inv = np.linalg.inv(P)
+            except np.linalg.LinAlgError:
+                return np.nan
+            return P_inv @ Mu @ P_inv
+
         Model_mat[run, feat] = x
         Gamma = Model_mat[:, :f_coeffs]
         X = Model_mat[:, f_coeffs:]
         Zetta = np.concatenate((ones, Gamma @ J_cb, X), axis=1)
         Mu = Zetta.T @ Zetta
 
-        if R_0 is None:
-            R = np.zeros((Mu.shape[0], Mu.shape[1]))
-        else:
-            R = R_0
-        if ridge_pen == 0:
-            I = np.zeros((Mu.shape[0], Mu.shape[1]))
-        else:
-            I = np.identity(Mu.shape[0])
+        MATRIX = MATRIX_calculation()
 
-        try:
-            P_inv = np.linalg.inv(Mu + smooth_pen * R + ridge_pen * I)
-            MATRIX = P_inv @ Mu @ P_inv
-        except np.linalg.LinAlgError:
-            return np.nan
         # if R_0 is None:
         #     MATRIX = Mu
         # else:
@@ -92,7 +97,7 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
             return -value  # negative of criterion value for minimization (i.e., maximize D-optimality)
         elif optimality == 'A':
             try:
-                value = float(np.trace(np.linalg.inv(MATRIX)))  # trace of inverse of Zetta.T x Zetta
+                value = np.trace(np.linalg.inv(MATRIX))  # trace of inverse of Zetta.T x Zetta
             except np.linalg.LinAlgError:
                 value = np.nan
             return value
@@ -123,8 +128,8 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
             Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)
             Model_mat = np.hstack((Gamma_, X_))
         else:
-            Model_mat, _, _ = cordex_discrete(runs=runs, f_list=f_list, scalars=scalars, levels=[-1, 1], epochs=1,
-                                              optimality=optimality, J_cb=J_cb, disable_bar=disable_bar)
+            Model_mat, _ = cordex_discrete(runs=runs, f_list=f_list, scalars=scalars, levels=[-1, 1], epochs=10,
+                                           optimality=optimality, J_cb=J_cb, disable_bar=disable_bar)
         for run in range(runs):
             for feat in range(f_coeffs + scalars - 1):
                 res = minimize(objective, Model_mat[run, feat], method=method, bounds=[(-1, 1)])
