@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.integrate import quad
+from scipy.linalg import block_diag
 
 from basis import indicator, polynomial
 
@@ -36,13 +37,5 @@ def calc_basis_matrix(x_basis, b_basis) -> np.ndarray:
     return np.array([[elements(n=x_basis, p=p, l1=l1) for p in range(b_basis)] for l1 in range(x_basis)])
 
 
-def Jcb(*matrices) -> np.ndarray:
-    # get dimensions of all matrices
-    rows = [m.shape[0] for m in matrices]
-    cols = [m.shape[1] for m in matrices]
-
-    diagonal_blocks = [m for m in matrices]
-    for i in range(len(matrices) - 1):
-        diagonal_blocks.insert(i * 2 + 1, np.zeros((rows[i], cols[i + 1])))
-
-    return np.block(diagonal_blocks)
+def Jcb(*matrices):
+    return block_diag(*matrices)

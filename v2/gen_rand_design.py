@@ -16,3 +16,17 @@ def gen_rand_design(runs: int, feats: int, num_x, num_f, low: int = -1, high: in
     # while np.linalg.det(A.T @ A) == 0:
     #     A = np.random.rand(runs, feats) - 0.5
     return A
+
+
+def gen_rand_design_m(runs, f_list=None, scalars=None, low=-1, high=1):
+
+    if f_list is None:
+        F = None
+    else:
+        F = np.random.uniform(low=low, high=high, size=(runs, sum(f_list)))
+    if scalars is None:
+        S = None
+    else:
+        S = np.random.uniform(low=low, high=high, size=(runs, scalars))
+
+    return F, S

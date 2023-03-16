@@ -1,6 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 from gen_rand_design import gen_rand_design
+from gen_rand_design import gen_rand_design_m
 
 
 # The `cordex` function is a function for generating a design matrix for a simulation experiment. The function takes
@@ -31,8 +32,16 @@ from gen_rand_design import gen_rand_design
 # matrix, `np.trace` to calculate the trace of a matrix, `np.array` to create an array and `tqdm` which is a library
 # used to show the progress of a loop.
 
+def find_best_design(epochs_list, optimality):
+    epochs_list = epochs_list[~np.isnan(epochs_list[:, 1].astype(float))]
+    Design_best = epochs_list[epochs_list[:, 1].argmin(), 2]
+    Opt_best = epochs_list[epochs_list[:, 1].argmin(), 1]
+    # Correct criterion sign
+    Opt_best = -Opt_best if optimality in ['D', 'I'] else Opt_best
+    return Design_best, Opt_best, epochs_list
 
-def cordex_discrete(runs, feats, n_f, n_x, levels, epochs, optimality='A', J_cb=None, disable_bar=False) -> object:
+
+def cordex_discrete(runs, f_list, scalars, levels, epochs, optimality='A', J_cb=None, disable_bar=False) -> object:
     """
     Generates a discrete design matrix that optimizes a given criterion.
 
@@ -57,7 +66,7 @@ def cordex_discrete(runs, feats, n_f, n_x, levels, epochs, optimality='A', J_cb=
         ValueError: If `optimality` is not one of 'D', 'A', 'E', or 'I'.
     """
 
-    def objective(Gamma, optimality="D"):
+    def objective():
         """
         This function calculates the optimality of a given matrix M based on the specified criterion. The available criteria are 'D' (Determinant), 'A' (Average Diagonal), 'E' (Maximum Eigenvalue), and 'I' (Minimum Eigenvalue).
 
@@ -72,57 +81,46 @@ def cordex_discrete(runs, feats, n_f, n_x, levels, epochs, optimality='A', J_cb=
             ValueError: If an invalid criterion is provided. The criterion should be one of 'D', 'A', 'E', or 'I'.
             np.linalg.LinAlgError: If an error occurs during the computation of the criterion. In this case, the optimality value is set to infinity.
         """
-        Zetta = np.concatenate((ones, Gamma), axis=1) if J_cb is None else np.concatenate((ones, Gamma @ J_cb), axis=1)
+        Gamma = Model_mat[:, :f_coeffs]
+        X = Model_mat[:, f_coeffs:]
+        Zetta = np.hstack((ones, Gamma @ J_cb, X))
         M = Zetta.T @ Zetta
 
         if optimality == "D":
             try:
-                cr = np.linalg.det(M)
+                value = np.linalg.det(M)
             except np.linalg.LinAlgError:
-                cr = np.infty
-            return -cr
+                value = np.nan
+            return -value
         elif optimality == "A":
             try:
-                cr = np.trace(np.linalg.inv(M))
+
+                value = np.trace(np.linalg.inv(M))
             except np.linalg.LinAlgError:
-                cr = np.infty
-            return cr
-        elif optimality == "E":
-            try:
-                cr = np.max(np.linalg.eigvals(M))
-            except np.linalg.LinAlgError:
-                cr = np.infty
-            return cr
-        elif optimality == "I":
-            try:
-                cr = np.min(np.linalg.eigvals(M))
-            except np.linalg.LinAlgError:
-                cr = np.infty
-            return -cr
+                value = np.nan
+            return value
         else:
             raise ValueError(f"Invalid criterion {optimality}. "
                              "Criterion should be one of 'D', 'A', 'E', or 'I'.")
 
-    ones = np.array([1] * runs).reshape(-1, 1)  # [n x 1]
+    f_coeffs = sum(f_list)+1
+    ones = np.ones((runs, 1))
     epochs_list = []
+
     for epoch in tqdm(range(epochs), disable=disable_bar):
-        Gamma = gen_rand_design(runs=runs, feats=feats, num_f=num_f, num_x=num_x)  # [n x n_x]
+        Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)  # [n x n_x]
+        Model_mat = np.hstack((Gamma_, X_))
         for run in range(runs):
-            for feat in range(feats):
+            for feat in range(f_coeffs + scalars - 1):
                 best_level_list = []
                 for level in levels:
-                    Gamma[run, feat] = level
-                    cr = objective(Gamma=Gamma, optimality=optimality)
-                    best_level_list.append(cr)
+                    Model_mat[run, feat] = level
+                    objective_value = objective()
+                    best_level_list.append(objective_value)
                 best_level_index = best_level_list.index(min(best_level_list))
-                Gamma[run, feat] = levels[best_level_index]
+                Model_mat[run, feat] = levels[best_level_index]
 
         # For each epoch, compute the optimality criterion to keep in an array.
-        cr = objective(Gamma=Gamma, optimality=optimality)
-        epochs_list.append([epoch, cr, Gamma])
-    epochs_list = np.array(epochs_list, dtype=object)
-    Design_best = epochs_list[epochs_list[:, 1].argmin(), 2]
-    Opt_best = epochs_list[epochs_list[:, 1].argmin(), 1]
-    # Correct criterion sign
-    Opt_best = -Opt_best if optimality in ['D', 'I'] else Opt_best
-    return Design_best, Opt_best, epochs_list
+        objective_value = objective()
+        epochs_list.append([epoch, objective_value, Model_mat])
+    return find_best_design(np.array(epochs_list, dtype=object), optimality)
