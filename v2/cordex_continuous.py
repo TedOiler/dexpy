@@ -5,9 +5,8 @@ from gen_rand_design import gen_rand_design_m  # custom function for generating 
 from cordex_discrete import cordex_discrete
 
 
-def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None, smooth_pen=0, ridge_pen=0,
-                      epochs=1000,
-                      method='L-BFGS-B', random_start=False, disable_bar=True, final_pass=False):
+def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None, smooth_pen=0, ridge_pen=0, epochs=1000,
+                      method='L-BFGS-B', random_start=False, disable_bar=True, final_pass=False, final_pass_iter=100):
     """
     Uses a coordinate descent algorithm to find the design with the minimum D-optimality (or maximum A-optimality)
     criterion value for a continuous regression problem.
@@ -32,7 +31,7 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
                                         Defaults to True.
         final_pass (bool, optional): If set to True, the algorithm will make a final pass after completion to make sure that the
                                         final design is the true best. This is useful when running a lot of designs. Defaults to False.
-
+        final_pass_iter (int, optional): Number of iterations for the final pass. Defaults to 100.
     Returns:
         tuple (numpy.ndarray, float): The design with the best D-optimality or A-optimality value, and the corresponding design.
 
@@ -57,29 +56,27 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
             ValueError: If the specified optimality criterion is not one of 'D' or 'A'.
         """
 
-        def MATRIX_calculation():
-            if R_0 is None and ridge_pen == 0:
-                P = np.identity(Mu.shape[0])
-            else:
-                if R_0 is None:
-                    P = Mu + ridge_pen * np.identity(Mu.shape[0])
-                elif ridge_pen == 0:
-                    P = Mu + smooth_pen * R_0
-                else:
-                    P = Mu + smooth_pen * R_0 + ridge_pen * np.identity(Mu.shape[0])
-            try:
-                P_inv = np.linalg.inv(P)
-            except np.linalg.LinAlgError:
-                return np.nan
-            return P_inv @ Mu @ P_inv
-
         Model_mat[run, feat] = x
         Gamma = Model_mat[:, :f_coeffs]
         X = Model_mat[:, f_coeffs:]
         Zetta = np.concatenate((ones, Gamma @ J_cb, X), axis=1)
         Mu = Zetta.T @ Zetta
 
-        MATRIX = MATRIX_calculation()
+        if R_0 is None and ridge_pen == 0:
+            P = np.identity(Mu.shape[0])
+        else:
+            if R_0 is None:
+                P = Mu + ridge_pen * np.identity(Mu.shape[0])
+            elif ridge_pen == 0:
+                P = Mu + smooth_pen * R_0
+            else:
+                P = Mu + smooth_pen * R_0 + ridge_pen * np.identity(Mu.shape[0])
+        try:
+            P_inv = np.linalg.inv(P)
+        except np.linalg.LinAlgError:
+            return np.nan
+
+        MATRIX = P_inv @ Mu @ P_inv
 
         # if R_0 is None:
         #     MATRIX = Mu
@@ -122,8 +119,10 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
     Best_obj = np.inf
     f_coeffs = sum(f_list) + 1
     ones = np.ones((runs, 1))
+    Model_mat = None
 
     for _ in tqdm(range(epochs), disable=not disable_bar):
+        objective_value = np.inf
         if random_start:
             Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)
             Model_mat = np.hstack((Gamma_, X_))
@@ -136,19 +135,22 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
                 if res.x is not None:
                     Model_mat[run, feat] = res.x
                 objective_value = objective(res.x)
+
         if check(objective_value):
             Best_obj = objective_value
             Best_des = Model_mat
 
     if final_pass:
-        for run in range(Best_des.shape[0]):
-            for feat in range(Best_des.shape[1]):
-                x0 = Best_des[run, feat]
-                res = minimize(objective, x0, method=method, bounds=[(-1, 1)])
-                Best_des[run, feat] = res.x
-                objective_value = objective(res.x)
-        if check(objective_value):
-            Best_obj = objective_value
-            Best_des = Model_mat
+        print("Executing final pass...")
+        for _ in tqdm(range(final_pass_iter)):
+            objective_value = np.inf
+            for run in range(Model_mat.shape[0]):
+                for feat in range(Model_mat.shape[1]):
+                    res = minimize(objective, Model_mat[run, feat], method=method, bounds=[(-1, 1)])
+                    Model_mat[run, feat] = res.x
+                    objective_value = objective(res.x)
+            if check(objective_value):
+                Best_obj = objective_value
+                Best_des = Model_mat
 
     return Best_des, np.abs(Best_obj)
