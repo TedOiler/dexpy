@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 import torch
-from botorch.models import SingleTaskGP, ModelListGP
+from botorch.models import SingleTaskGP
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from botorch import fit_gpytorch_model
 from botorch.acquisition.monte_carlo import qExpectedImprovement
@@ -21,7 +21,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 tkwargs = {'dtype': torch.double, 'device': device}
 
 
-def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None):
+def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None, beta=0.1, decay_rate=0.9, epoch=0):
     """
     Generates the next set of candidates for Bayesian optimization using the acquisition function specified.
 
@@ -39,6 +39,7 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
     Raises:
         ValueError: If the specified acquisition function is not valid.
     """
+
     bounds = torch.Tensor([[-1] * X.shape[1], [1] * X.shape[1]])
 
     model = SingleTaskGP(X, y)
@@ -53,6 +54,8 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
         acq_f = qProbabilityOfImprovement(model=model, best_f=best_y)
     elif acq_f == 'UCB':
         acq_f = qUpperConfidenceBound(model=model, beta=0.1)
+    elif acq_f == 'A-UCB':
+        acq_f = qUpperConfidenceBound(model=model, beta=beta * (decay_rate ** epoch))
     else:
         raise ValueError(f"Invalid acquisition function {acq_f}. "
                          "acq_f should be one of 'EI', 'PI', or 'UCB'.")
@@ -68,8 +71,10 @@ def gen_next_point(X, y, best_y, n_exp, acq_f='UCB', inequality_constraints=None
     return candidates
 
 
-def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initialization_method=None,
-            inequality_constraint=None):
+def bo_loop(epochs, runs, f_list, scalars, optimality, J_cb,
+            R_0=None, smooth_pen=0, ridge_pen=0, estimator='MLE', final_pass=True,
+            n_exp=1, acq_f='EI', initialization_method=None,
+            inequality_constraint=None, beta=0.1, decay_rate=0.9):
     """
     Run a Bayesian optimization loop.
 
@@ -105,7 +110,7 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
                 If the optimality criterion is not one of 'D', 'A', 'E', or 'I'.
         """
         ones = np.array([1] * runs).reshape(-1, 1)
-        X = X.reshape(runs, feats)
+        X = X.reshape(runs, sum(f_list) + scalars)
         Zetta = np.concatenate((ones, X), axis=1) if J_cb is None else np.concatenate((ones, X @ J_cb), axis=1)
         M = Zetta.T @ Zetta
 
@@ -157,13 +162,20 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
 
         The highest objective function value in y is returned as the 'best_y' value.
         """
-        X, _, _ = cordex_continuous(runs=runs,
-                                    feats=J_cb.shape[0],
-                                    epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
-                                    method=initialization_method,
-                                    J_cb=J_cb,
-                                    optimality=optimality)
-        X_flat = X.flatten().reshape(1, runs * feats)
+        X, _ = cordex_continuous(runs=runs,
+                                 f_list=f_list,
+                                 scalars=scalars,
+                                 epochs=3,  # Epochs could also be ceil(J_cb.shape[0]/10)
+                                 method=initialization_method,
+                                 J_cb=J_cb,
+                                 R_0=R_0,
+                                 smooth_pen=smooth_pen,
+                                 ridge_pen=ridge_pen,
+                                 estimator=estimator,
+                                 optimality=optimality,
+                                 final_pass=final_pass,
+                                 final_pass_iter=10)
+        X_flat = X.flatten().reshape(1, -1)
         y = objective(X_flat, optimality=optimality)
         best_y = y.max().item()
         return torch.tensor(X_flat), torch.tensor(y).reshape(-1, 1), best_y
@@ -176,7 +188,7 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
                                         levels=[-1, 1],
                                         J_cb=J_cb,
                                         disable_bar=True)
-        X_flat = X.flatten().reshape(1, runs * feats)
+        X_flat = X.flatten().reshape(1, -1)
         y = objective(X_flat, optimality=optimality)
         if optimality in ['A', 'E']:
             best_y = -best_cr
@@ -213,14 +225,18 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
     X_init, y_init, best_y_init = initialization_function()
     epochs_list = [[-1, best_y_init, X_init]]
     for epoch in tqdm(range(epochs)):
-        try:
-            new_candidates = gen_next_point(X=X_init, y=y_init, best_y=best_y_init, n_exp=n_exp, acq_f=acq_f,
-                                            inequality_constraints=inequality_constraint)
-        except:
-            # delete last row since it is the one that cased the problem
-            X_init = X_init[:-1, :]
-            y_init = y_init[:-1, :]
-            continue
+        new_candidates = gen_next_point(X=X_init, y=y_init, best_y=best_y_init, n_exp=n_exp, acq_f=acq_f,
+                                        inequality_constraints=inequality_constraint, beta=beta,
+                                        decay_rate=decay_rate, epoch=epoch)
+        # try:
+        #     new_candidates = gen_next_point(X=X_init, y=y_init, best_y=best_y_init, n_exp=n_exp, acq_f=acq_f,
+        #                                     inequality_constraints=inequality_constraint, beta=beta,
+        #                                     decay_rate=decay_rate, epoch=epoch)
+        # except:
+        #     # delete last row since it is the one that cased the problem
+        #     X_init = X_init[:-1, :]
+        #     y_init = y_init[:-1, :]
+        #     continue
         new_results = objective(X=new_candidates, optimality=optimality)
         new_results = torch.Tensor(new_results.reshape(-1, 1))
         X_init = torch.cat([X_init, new_candidates])
@@ -234,4 +250,4 @@ def bo_loop(epochs, runs, feats, optimality, J_cb, n_exp=1, acq_f='EI', initiali
     Opt_best = epochs_list[epochs_max_id, 1]
     # Correct criterion sign
     Opt_best = -Opt_best if optimality in ['A', 'E'] else Opt_best
-    return np.array(Best_des).reshape(runs, feats), Opt_best, epochs_list
+    return np.array(Best_des).reshape(runs, sum(f_list) + scalars), Opt_best, epochs_list

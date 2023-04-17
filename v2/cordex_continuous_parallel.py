@@ -3,11 +3,12 @@ from tqdm import tqdm  # for progress bar
 from scipy.optimize import minimize
 from gen_rand_design import gen_rand_design_m  # custom function for generating random designs
 from cordex_discrete import cordex_discrete
+from multiprocessing import Pool, Manager
 
 
 def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None, smooth_pen=0, ridge_pen=0,
-                      epochs=1000, estimator='MLE',
-                      method='L-BFGS-B', random_start=False, final_pass=True, final_pass_iter=100,
+                      epochs=1000,
+                      method='L-BFGS-B', random_start=False, final_pass=True, final_pass_iter=100, num_processes=None,
                       main_bar=True, starting_bar=False, final_bar=False):
     """
     Uses a coordinate descent algorithm to find the design with the minimum D-optimality (or maximum A-optimality)
@@ -32,6 +33,7 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
         final_pass (bool, optional): If set to True, the algorithm will make a final pass after completion to make sure that the
                                         final design is the true best. This is useful when running a lot of designs. Defaults to False.
         final_pass_iter (int, optional): Number of iterations for the final pass. Defaults to 100.
+        num_processes (int, optional): Number of processes to use for parallelization. Defaults to None.
         main_bar (bool, optional): This will set the tqdm progress bar of the main algorithm.
                                         Defaults to True.
         starting_bar (bool, optional): This will set the tqdm progress bar of the starting design.
@@ -69,7 +71,7 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
         Mu = Zetta.T @ Zetta
 
         if R_0 is None and ridge_pen == 0:
-            P = Mu
+            P = np.identity(Mu.shape[0])
         else:
             if R_0 is None:
                 P = Mu + ridge_pen * np.identity(Mu.shape[0])
@@ -82,24 +84,18 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
         except np.linalg.LinAlgError:
             return np.nan
 
-        if estimator == 'MLE':
-            MATRIX = P_inv @ Mu @ P_inv
-        elif estimator == 'Bayes':
-            MATRIX = P_inv
-        else:
-            raise ValueError(f"Invalid estimator {estimator}. "
-                             "Estimator should be one of 'MLE', or 'Bayes'.")
-        if np.isclose(np.linalg.det(MATRIX), 0):
-            return np.nan
+        MATRIX = P_inv @ Mu @ P_inv
 
         if optimality == 'D':
-            value = np.linalg.det(MATRIX)
-            if np.isclose(value, 0, atol=1e-8):
+            try:
+                value = np.linalg.det(MATRIX)
+            except np.linalg.LinAlgError:
                 value = np.nan
-            return value
+            return -value  # negative of criterion value for minimization (i.e., maximize D-optimality)
         elif optimality == 'A':
-            value = np.trace(MATRIX)
-            if np.isclose(value, 0, atol=1e-8):
+            try:
+                value = np.trace(np.linalg.inv(MATRIX))  # trace of inverse of Zetta.T x Zetta
+            except np.linalg.LinAlgError:
                 value = np.nan
             return value
         else:
@@ -108,62 +104,65 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
 
     def check(obj):
         if optimality in ['A']:
-            return 0 <= obj < Best_obj
-            # return obj < Best_obj
+            return 0 < obj < Best_obj
         elif optimality in ['D']:
-            return 0 <= obj < Best_obj
-            # return obj < Best_obj
+            return obj < 0 < Best_obj
 
-    def run_checks():
-        if method not in ['Nelder-Mead', 'Powell', 'TNC', 'L-BFGS-B']:
-            raise ValueError(f"Invalid method {method}. "
-                             "Method should be one of 'Nelder-Mead', 'Powell', 'TNC', or 'L-BFGS-B'.")
-        if runs < J_cb.shape[1] + scalars + 1 and smooth_pen == 0 and ridge_pen == 0:
-            raise ValueError(f"Design not Estimable."
-                             f"Runs {runs}, Parameters: {sum(f_list) + scalars}, with no penalty.")
-        if R_0 is None and smooth_pen != 0:
-            raise ValueError(f"Smoothness penalty is set to {smooth_pen}, but no smoothness matrix is provided.")
-        if R_0 is not None and smooth_pen == 0:
-            raise ValueError(f"Smoothness matrix is provided, but smoothness penalty is set to {smooth_pen}.")
+    def run_epoch(args):
+        update_lock, epoch = args
+        with update_lock:
+            objective_value = np.inf
+            if random_start:
+                Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)
+                Model_mat = np.hstack((Gamma_, X_))
+            else:
+                Model_mat, _ = cordex_discrete(runs=runs, f_list=f_list, scalars=scalars, levels=[-1, 1], epochs=10,
+                                               optimality=optimality, J_cb=J_cb, disable_bar=not starting_bar)
+            for run in range(runs):
+                for feat in range(f_coeffs + scalars - 1):
+                    res = minimize(objective, Model_mat[run, feat], method=method, bounds=[(-1, 1)])
+                    if res.x is not None:
+                        Model_mat[run, feat] = res.x
+                    objective_value = objective(res.x)
 
-    run_checks()
+            if check(objective_value):
+                with update_lock:
+                    if check(objective_value):
+                        Best_obj = objective_value
+                        Best_des = Model_mat
+
+    if method not in ['Nelder-Mead', 'Powell', 'TNC', 'L-BFGS-B']:
+        raise ValueError(f"Invalid method {method}. "
+                         "Method should be one of 'Nelder-Mead', 'Powell', 'TNC', or 'L-BFGS-B'.")
+    if runs < len(f_list) + scalars:
+        raise ValueError(f"Design not Estimable."
+                         f"Runs {runs}, Parameters: {sum(f_list) + scalars}")
+
     Best_des = None
     Best_obj = np.inf
     f_coeffs = sum(f_list) + 1
     ones = np.ones((runs, 1))
     Model_mat = None
 
-    for _ in tqdm(range(epochs), disable=not main_bar):
-        objective_value = np.inf
-        if random_start:
-            Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)
-            Model_mat = np.hstack((Gamma_, X_))
-        else:
-            Model_mat, _ = cordex_discrete(runs=runs, f_list=f_list, scalars=scalars, levels=[-1, 1], epochs=10,
-                                           optimality=optimality, J_cb=J_cb, disable_bar=not starting_bar)
-        for run in range(runs):
-            for feat in range(f_coeffs + scalars - 1):
-                res = minimize(objective, Model_mat[run, feat], method=method, bounds=[(-1, 1)])
-                if res.x is not None:
-                    Model_mat[run, feat] = res.x
-                objective_value = objective(res.x)
-
-        if check(objective_value):
-            Best_obj = objective_value
-            Best_des = Model_mat
+    if num_processes is None:
+        for _ in tqdm(range(epochs), disable=not main_bar):
+            run_epoch(None)
+    else:
+        with Manager() as manager:
+            update_lock = manager.Lock()
+            with Pool(processes=num_processes) as pool:
+                list(tqdm(pool.imap_unordered(run_epoch, [(update_lock, i) for i in range(epochs)]), total=epochs, disable=not main_bar))
 
     if final_pass:
         if final_bar:
             print("Executing final pass...")
         for _ in tqdm(range(final_pass_iter), disable=not final_bar):
-            objective_value = Best_obj
+            objective_value = np.inf
             for run in range(Model_mat.shape[0]):
                 for feat in range(Model_mat.shape[1]):
                     res = minimize(objective, Model_mat[run, feat], method=method, bounds=[(-1, 1)])
                     Model_mat[run, feat] = res.x
                     objective_value = objective(res.x)
-                    if np.isclose(objective_value, 0, atol=1e-15):
-                        objective_value = 0
             if check(objective_value):
                 Best_obj = objective_value
                 Best_des = Model_mat

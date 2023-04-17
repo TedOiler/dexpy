@@ -28,7 +28,7 @@ def plot_basis(ax, T, w, f, run, size=35) -> None:
     ax.set_ylim(-1.2, 1.2)
     ax.set_xticks([0, 0.5, 1])
     ax.set_xticklabels(['0', '.5', '1'])
-    ax.set_title(f"Run: {run+1}", fontsize=16)
+    ax.set_title(f"({chr(run+1+96)})", fontsize=16)
     # Calculate knots and weights
     knots = [(1 / (len(w) - 1 + 1)) * (i + 1) for i in
              range(len(w) - 1 + 1 - 1)]
@@ -37,7 +37,7 @@ def plot_basis(ax, T, w, f, run, size=35) -> None:
 
     # Draw knots
     ax.scatter(knots, weights, color="darkorange", s=size, zorder=1)  # internal knots
-    ax.scatter([0, 1], [w[0], w[len(w) - 1]], color="black", s=35, zorder=1)  # support knots
+    ax.scatter([0, 1], [w[0], w[len(w) - 1]], color="black", s=size, zorder=1)  # support knots
     ax.locator_params(axis='y', nbins=3)
     ax.locator_params(axis='x', nbins=6)
 
@@ -62,7 +62,10 @@ def subplot_results(sub_x, sub_y, T, results, style='fivethirtyeight', size=35, 
     row_to_plot = 0
     for i in range(sub_x):
         for j in range(sub_y):
-            plot_basis(ax=ax[i, j], T=T, w=results[row_to_plot, :].tolist(), f=step, size=size, run=row_to_plot)
+            try:
+                plot_basis(ax=ax[i, j], T=T, w=results[row_to_plot, :].tolist(), f=step, size=size, run=row_to_plot)
+            except IndexError:
+                pass
             row_to_plot += 1
     if save:
         plt.savefig('./results/myexp.png')
