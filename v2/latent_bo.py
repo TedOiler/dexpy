@@ -1,0 +1,122 @@
+import numpy as np
+from skopt import gp_minimize
+from skopt.learning import GaussianProcessRegressor
+from skopt.learning.gaussian_process.kernels import RBF
+from skopt.optimizer import Optimizer
+from skopt.space import Real
+from tqdm import tqdm
+
+from skopt.plots import plot_objective
+from skopt.plots import plot_evaluations
+from matplotlib import pyplot as plt
+
+
+def objective_function(X, m, n, J_cb=None, noise=0):
+    ones = np.ones((m, 1)).reshape(-1, 1)
+    X = np.array(X).reshape(m, n)
+    Z = np.hstack((ones, X @ J_cb))
+    try:
+        M = np.linalg.inv(Z.T @ Z)
+    except np.linalg.LinAlgError:
+        return 1e10
+    return np.trace(M) + np.random.normal(0, noise)
+
+
+def objective_function_latent(latent_X, m, n, J_cb, decoder, noise=0):
+    X_next = decoder.predict(np.array(latent_X).reshape(1, -1))
+    X_next = X_next.flatten()
+    return objective_function(X_next, m, n, J_cb=J_cb, noise=noise)
+
+
+def latent_auto_bo(runs, n_x, J_cb, decoder, latent_dim, n_iterations=50, random_seed=42):
+    # Adjust the search space to match the latent space dimension
+    search_space = [Real(-1., 1.) for _ in range(latent_dim)]
+
+    # Step 1: Run the initial optimization loop for 20 iterations
+    gp_result = gp_minimize(
+        lambda x: objective_function_latent(x, runs, sum(n_x), J_cb, decoder, noise=0),
+        search_space,
+        n_calls=n_iterations,
+        n_random_starts=5,
+        random_state=random_seed,
+        verbose=True,
+        acq_func="LCB",
+        initial_point_generator="random",
+    )
+
+    # Get the optimal point in the latent space and objective function value for both methods
+    optimal_latent_X_gp = gp_result.x
+    optimal_y_gp = gp_result.fun
+
+    # Decode the optimal points in the latent space back into the design matrix space
+    optimal_X_gp = decoder.predict(np.array(optimal_latent_X_gp).reshape(1, -1))
+    optimal_X_gp = optimal_X_gp.flatten()
+
+    optimal_matrix_gp = np.array(optimal_X_gp).reshape(runs, sum(n_x))
+    optimal_det_gp = optimal_y_gp
+
+    return optimal_matrix_gp, optimal_det_gp, gp_result
+
+
+def latent_manual_bo(runs, n_x, J_cb, decoder, latent_dim, n_iterations=200, random_seed=42):
+    # Adjust the search space to match the latent space dimension
+    search_space = [Real(-1., 1.) for _ in range(latent_dim)]
+
+    # Create a Gaussian Process (GP) model with a Radial Basis Function (RBF) kernel
+    kernel = RBF(length_scale=1, length_scale_bounds=(1e-2, 1e2))
+    gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-10, random_state=random_seed)
+    opt = Optimizer(search_space, base_estimator=gpr, n_initial_points=5, acq_func="LCB", random_state=random_seed)
+
+    def damped_oscillation(x):
+        return A * np.exp(-b * x) * (1 + np.sin((2 * np.pi) / c * x)) + minimum
+
+    A = 0.5  # starting position
+    b = 0.02  # decay rate
+    c = 10  # period
+    minimum = 1e-2  # minimum value
+    for i in tqdm(range(n_iterations)):
+        kappa = damped_oscillation(i)
+        opt.acq_func_kwargs = {'kappa': kappa}
+
+        latent_X = opt.ask()
+        f_val = objective_function_latent(latent_X, runs, sum(n_x), J_cb, decoder, noise=0)
+        opt.tell(latent_X, f_val)
+
+    # Find the optimal point in the latent space
+    yi_array = np.array(opt.yi)
+    positive_yi_indices = np.where(yi_array > 0)
+    min_positive_yi_index = positive_yi_indices[0][np.argmin(yi_array[positive_yi_indices])]
+    optimal_latent_X = opt.Xi[min_positive_yi_index]
+
+    # Decode the optimal point in the latent space back into the design matrix space
+    optimal_X = decoder.predict(np.array(optimal_latent_X).reshape(1, -1))
+    optimal_X = optimal_X.flatten()
+
+    optimal_matrix = np.array(optimal_X).reshape(runs, sum(n_x))
+    optimal_det = np.min(yi_array[positive_yi_indices])
+
+    return optimal_matrix, optimal_det
+
+
+def plot_convergence(result, title):
+    plt.style.use('default')
+    plt.figure(figsize=(8, 6))
+    min_values = np.minimum.accumulate(result.func_vals)  # Calculate the running minimum value
+    plt.plot(range(1, len(result.func_vals) + 1), min_values, marker="o")
+    plt.xlabel("Number of calls")
+    plt.ylabel("Minimum objective function value")
+    plt.title(title)
+    plt.grid()
+    plt.show()
+
+
+def plot_evals(gp_result):
+    plt.style.use('default')
+    _ = plot_evaluations(gp_result)
+    plt.show()
+
+
+def plot_obj(gp_result):
+    plt.style.use('default')
+    _ = plot_objective(gp_result)
+    plt.show()
