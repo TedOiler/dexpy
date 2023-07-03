@@ -1,14 +1,17 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import Input, Dense, Dropout
+from tensorflow.keras.layers import Input, Dense, Dropout, BatchNormalization, LeakyReLU, Reshape, \
+    GlobalAveragePooling1D
 from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.layers import Conv2D, Conv2DTranspose, Reshape, Flatten
+from tensorflow.keras.layers import Conv2D, Conv2DTranspose, Flatten
 from tensorflow.keras.layers import MultiHeadAttention
 from tensorflow.keras.layers import Lambda
-from tensorflow.keras.layers import BatchNormalization, LeakyReLU
-
+from tensorflow.keras.losses import MeanSquaredError
+import tensorflow.keras.backend as K
+import random
 import tensorflow as tf
+# import tensorflow_addons as tfa
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.optimizers import RMSprop
 
@@ -19,6 +22,54 @@ from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
 
 from cordex_discrete import cordex_discrete
+from cordex_continuous import cordex_continuous
+
+
+# def objective_function_tf(X, m, n, J_cb=None, noise=0):
+#     batch_size = tf.shape(X)[0]
+#     ones = tf.ones((batch_size, m, 1))
+#     X = tf.reshape(X, (-1, m, n))
+#     Z = tf.concat([ones, tf.matmul(X, J_cb)], axis=2)
+#
+#     try:
+#         M = tf.linalg.inv(tf.matmul(Z, Z, transpose_a=True))
+#     except tf.errors.InvalidArgumentError:
+#         return tf.constant(1e10)
+#
+#     result = tf.linalg.trace(M) + tf.random.normal([], mean=0, stddev=noise)
+#     result = tf.where(result < 0, tf.constant(1e10), result)
+#     return tf.reduce_mean(result)
+
+
+def objective_function_tf(X, m, n, J_cb=None, noise=0):
+    batch_size = tf.shape(X)[0]
+    ones = tf.ones((batch_size, m, 1))
+    X = tf.reshape(X, (-1, m, n))
+    Z = tf.concat([ones, tf.matmul(X, J_cb)], axis=2)
+
+    Z_transpose_Z = tf.matmul(Z, Z, transpose_a=True)
+    det_Z_transpose_Z = tf.linalg.det(Z_transpose_Z)
+    epsilon = 1e-06
+    condition = tf.abs(det_Z_transpose_Z)[:, None, None] < epsilon
+
+    identity_matrix = tf.eye(tf.shape(Z_transpose_Z)[1], tf.shape(Z_transpose_Z)[2])
+    diagonal_part = tf.linalg.diag_part(Z_transpose_Z) + epsilon
+    Z_transpose_Z_epsilon = Z_transpose_Z + tf.linalg.diag(diagonal_part - tf.linalg.diag_part(Z_transpose_Z))
+    regularized_matrix = tf.where(condition, Z_transpose_Z_epsilon, Z_transpose_Z)
+
+    M = tf.linalg.inv(regularized_matrix)
+    result = tf.linalg.trace(M) + tf.random.normal([], mean=0, stddev=noise)
+    result = tf.where(result < 0, tf.constant(1e10), result)
+    return tf.reduce_mean(result)
+
+
+def combined_loss(alpha, loss_function, m, n, J_cb=None, noise=0):
+    def custom_loss(y_true, y_pred):
+        reconstruction_loss = loss_function(y_true, y_pred)
+        objective_value = objective_function_tf(y_pred, m, n, J_cb=J_cb, noise=noise)
+        return (1 - alpha) * reconstruction_loss + alpha * objective_value
+
+    return custom_loss
 
 
 def create_train_val_set(runs, n_x, scalars, optimality, J_cb,
@@ -47,8 +98,15 @@ def create_train_val_set(runs, n_x, scalars, optimality, J_cb,
     design_matrices = []
     criteria_matrix = []
     for _ in tqdm(range(num_designs)):
-        opt_design, opt_cr = cordex(runs=runs, f_list=n_x, scalars=scalars, levels=[-1, 1], epochs=1,
-                                    optimality=optimality, J_cb=J_cb, disable_bar=True)
+        if cordex == cordex_discrete:
+            opt_design, opt_cr = cordex_discrete(runs=runs, f_list=n_x, scalars=scalars, levels=[-1, 1], epochs=1,
+                                                 optimality=optimality, J_cb=J_cb, disable_bar=True)
+        elif cordex == cordex_continuous:
+            opt_design, opt_cr = cordex_continuous(runs=runs, f_list=n_x, scalars=scalars, optimality=optimality,
+                                                   J_cb=J_cb, epochs=1, final_pass_iter=1, main_bar=False,
+                                                   final_bar=False)
+        else:
+            opt_design, opt_cr = None, None
         design_matrices.extend(opt_design)
         criteria_matrix.append(opt_cr)
 
@@ -72,7 +130,8 @@ def create_train_val_set(runs, n_x, scalars, optimality, J_cb,
 
 
 def create_autoencoder(input_dim, latent_dim, dropout_rate=0.1,
-                       latent_space_activation='tanh', output_activation='tanh'):
+                       latent_space_activation='tanh', output_activation='tanh',
+                       max_layers=None):
     """
     Create an autoencoder with the given parameters. The autoencoder consists of an encoder and a decoder.
     The encoder compresses the input data into a lower-dimensional latent space, and the decoder reconstructs
@@ -101,6 +160,9 @@ def create_autoencoder(input_dim, latent_dim, dropout_rate=0.1,
 
     # Calculate the number of layers for the encoder and decoder based on the input dimension
     num_layers = int(np.log2(input_dim / latent_dim))
+
+    if max_layers is not None:
+        num_layers = min(num_layers, max_layers)
 
     # Create the input layer
     input_layer = Input(shape=(input_dim,))
@@ -140,7 +202,8 @@ def create_autoencoder(input_dim, latent_dim, dropout_rate=0.1,
 
 
 def create_autoencoder_enhanced(input_dim, latent_dim, dropout_rate=0.1,
-                                latent_space_activation='tanh', output_activation='tanh', l1_reg=1e-5, l2_reg=1e-5):
+                                latent_space_activation='tanh', output_activation='tanh', l1_reg=1e-5, l2_reg=1e-5,
+                                max_layers=None):
     """
     Create an autoencoder with the given parameters. The autoencoder consists of an encoder and a decoder.
     The encoder compresses the input data into a lower-dimensional latent space, and the decoder reconstructs
@@ -179,7 +242,8 @@ def create_autoencoder_enhanced(input_dim, latent_dim, dropout_rate=0.1,
     for i in range(num_layers):
         n_neurons = int(input_dim / (2 ** (i + 1)))
         n_neurons_list.append(n_neurons)
-        encoder = Dense(n_neurons, activation=None, kernel_regularizer=tf.keras.regularizers.l1_l2(l1_reg, l2_reg))(encoder)
+        encoder = Dense(n_neurons, activation=None, kernel_regularizer=tf.keras.regularizers.l1_l2(l1_reg, l2_reg))(
+            encoder)
         encoder = BatchNormalization()(encoder)
         encoder = LeakyReLU()(encoder)
         encoder = Dropout(dropout_rate * (i + 1) / num_layers)(encoder)
@@ -190,7 +254,8 @@ def create_autoencoder_enhanced(input_dim, latent_dim, dropout_rate=0.1,
     # Build the decoder layers
     decoder = latent_space
     for i, n_neurons in enumerate(reversed(n_neurons_list)):
-        decoder = Dense(n_neurons, activation=None, kernel_regularizer=tf.keras.regularizers.l1_l2(l1_reg, l2_reg))(decoder)
+        decoder = Dense(n_neurons, activation=None, kernel_regularizer=tf.keras.regularizers.l1_l2(l1_reg, l2_reg))(
+            decoder)
         decoder = BatchNormalization()(decoder)
         decoder = LeakyReLU()(decoder)
         decoder = Dropout(dropout_rate * (num_layers - i) / num_layers)(decoder)
@@ -212,9 +277,107 @@ def create_autoencoder_enhanced(input_dim, latent_dim, dropout_rate=0.1,
     return autoencoder, encoder, decoder
 
 
+def create_vae(input_dim, latent_dim, dropout_rate=0.1,
+               latent_space_activation='tanh', output_activation='tanh', l1_reg=1e-5, l2_reg=1e-5):
+    num_layers = int(np.ceil(np.log2(input_dim / latent_dim)))
+
+    input_layer = Input(shape=(input_dim,))
+
+    # Build the encoder layers
+    encoder = input_layer
+    n_neurons_list = []  # Store the number of neurons for each encoder layer
+    for i in range(num_layers):
+        n_neurons = int(input_dim / (2 ** (i + 1)))
+        n_neurons_list.append(n_neurons)
+        encoder = Dense(n_neurons, activation=None, kernel_regularizer=tf.keras.regularizers.l1_l2(l1_reg, l2_reg))(
+            encoder)
+        encoder = BatchNormalization()(encoder)
+        encoder = LeakyReLU()(encoder)
+        encoder = Dropout(dropout_rate * (i + 1) / num_layers)(encoder)
+
+    # Latent space layer
+    z_mean = Dense(latent_dim, activation=latent_space_activation, name='z_mean')(encoder)
+    z_log_var = Dense(latent_dim, activation=latent_space_activation, name='z_log_var')(encoder)
+
+    # Reparameterization trick
+    def sampling(args):
+        z_mean, z_log_var = args
+        batch = K.shape(z_mean)[0]
+        dim = K.int_shape(z_mean)[1]
+        epsilon = K.random_normal(shape=(batch, dim))
+        return z_mean + K.exp(0.5 * z_log_var) * epsilon
+
+    z = Lambda(sampling, output_shape=(latent_dim,), name='z')([z_mean, z_log_var])
+
+    # Instantiate the encoder model
+    encoder = Model(input_layer, [z_mean, z_log_var, z], name='encoder')
+
+    # Decoder
+    latent_inputs = Input(shape=(latent_dim,), name='z_sampling')
+    decoder = latent_inputs
+    for i, n_neurons in enumerate(reversed(n_neurons_list)):
+        decoder = Dense(n_neurons, activation=None, kernel_regularizer=tf.keras.regularizers.l1_l2(l1_reg, l2_reg))(
+            decoder)
+        decoder = BatchNormalization()(decoder)
+        decoder = LeakyReLU()(decoder)
+        decoder = Dropout(dropout_rate * (num_layers - i) / num_layers)(decoder)
+
+    # Output layer
+    decoder_output = Dense(input_dim, activation=output_activation)(decoder)
+
+    # Instantiate the decoder model
+    decoder = Model(latent_inputs, decoder_output, name='decoder')
+
+    # VAE
+    decoded_output = decoder(encoder(input_layer)[2])
+    vae = Model(input_layer, decoded_output, name='vae')
+
+    # Loss function
+    reconstruction_loss = tf.keras.losses.Huber()(input_layer, decoded_output)
+    reconstruction_loss *= input_dim
+    kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+    kl_loss = K.sum(kl_loss, axis=-1)
+    kl_loss *= -0.5
+    vae_loss = K.mean(reconstruction_loss + kl_loss)
+    vae.add_loss(vae_loss)
+
+    return vae, encoder, decoder
+
+
+def fit_autoencoder_custom(autoencoder_func, train_data, val_data, input_dim, latent_dim,
+                           dropout_rate=0.01, epochs=1000, batch_size=32, patience=50,
+                           optimizer=RMSprop, loss=tf.keras.losses.Huber(), monitor='val_loss',
+                           alpha=1.0, m=None, n=None, J_cb=None, noise=0, optimizer_kwargs=None, max_layers=None, SEED=42):
+    # The same function arguments as before, with additional `m`, `n`, `J_cb`, and `noise` parameters.
+    random.seed(SEED)
+    np.random.seed(SEED)
+    tf.random.set_seed(SEED)
+    # Define autoencoder architecture
+    autoencoder, encoder, decoder = autoencoder_func(input_dim, latent_dim, dropout_rate=dropout_rate, max_layers=max_layers)
+
+    # Create a new optimizer instance
+    if optimizer_kwargs is None:
+        optimizer_kwargs = {}
+    optimizer = optimizer(**optimizer_kwargs)
+
+    # Create the custom combined loss function
+    custom_loss = combined_loss(alpha, loss, m, n, J_cb=J_cb, noise=noise)
+
+    # Compile and train the autoencoder with early stopping
+    autoencoder.compile(optimizer=optimizer, loss=custom_loss)
+    early_stopping = EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True)
+    history = autoencoder.fit(train_data, train_data,
+                              epochs=epochs,
+                              batch_size=batch_size,
+                              validation_data=(val_data,  val_data),
+                              callbacks=[early_stopping])
+
+    return autoencoder, encoder, decoder, history
+
+
 def fit_autoencoder(autoencoder_func, train_data, val_data, input_dim, latent_dim,
                     dropout_rate=0.01, epochs=1000, batch_size=32, patience=50,
-                    optimizer=RMSprop, loss=tf.keras.losses.Huber(), monitor='val_loss', optimizer_kwargs=None):
+                    optimizer=RMSprop, loss=tf.keras.losses.Huber(), monitor='val_loss', optimizer_kwargs=None, max_layers=None):
     """
     Create and fit an autoencoder to the given training and validation data.
 
@@ -241,7 +404,7 @@ def fit_autoencoder(autoencoder_func, train_data, val_data, input_dim, latent_di
             - history (History): The training history.
     """
     # Define autoencoder architecture
-    autoencoder, encoder, decoder = autoencoder_func(input_dim, latent_dim, dropout_rate=dropout_rate)
+    autoencoder, encoder, decoder = autoencoder_func(input_dim, latent_dim, dropout_rate=dropout_rate, max_layers=max_layers)
     # Create a new optimizer instance
     if optimizer_kwargs is None:
         optimizer_kwargs = {}
@@ -261,7 +424,8 @@ def fit_autoencoder(autoencoder_func, train_data, val_data, input_dim, latent_di
 
 def fit_denoising_autoencoder(autoencoder_func, x_train, y_train, x_val, y_val, input_dim, latent_dim,
                               dropout_rate=0.01, epochs=5000, batch_size=32, patience=100,
-                              optimizer=RMSprop, loss=tf.keras.losses.Huber(), monitor='val_loss', optimizer_kwargs=None):
+                              optimizer=RMSprop, loss=tf.keras.losses.Huber(), monitor='val_loss',
+                              optimizer_kwargs=None, alpha=1.0, m=None, n=None, J_cb=None, noise=0, max_layers=None):
     """
     Create and fit a denoising autoencoder to the given noisy training and validation data.
 
@@ -290,13 +454,17 @@ def fit_denoising_autoencoder(autoencoder_func, x_train, y_train, x_val, y_val, 
             - history (History): The training history.
     """
     # Define autoencoder architecture
-    autoencoder, encoder, decoder = autoencoder_func(input_dim, latent_dim, dropout_rate=dropout_rate)
+    autoencoder, encoder, decoder = autoencoder_func(input_dim, latent_dim, dropout_rate=dropout_rate, max_layers=max_layers)
     # Create a new optimizer instance
     if optimizer_kwargs is None:
         optimizer_kwargs = {}
     optimizer = optimizer(**optimizer_kwargs)
     # Compile and train the autoencoder with early stopping
-    autoencoder.compile(optimizer=optimizer, loss=loss)
+
+    # Create the custom combined loss function
+    custom_loss = combined_loss(alpha, loss, m, n, J_cb=J_cb, noise=noise)
+
+    autoencoder.compile(optimizer=optimizer, loss=custom_loss)
     early_stopping = EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True)
     history = autoencoder.fit(x_train, y_train,
                               epochs=epochs,
@@ -307,7 +475,63 @@ def fit_denoising_autoencoder(autoencoder_func, x_train, y_train, x_val, y_val, 
     return autoencoder, encoder, decoder, history
 
 
-def plot_history(history, title=None):
+def fit_vae(vae_func, train_data, val_data, input_dim, latent_dim,
+            dropout_rate=0.01, epochs=1000, batch_size=32, patience=50,
+            optimizer=RMSprop, loss=tf.keras.losses.MeanSquaredError(), monitor='val_loss', optimizer_kwargs=None):
+    """
+    Create and fit a variational autoencoder to the given training and validation data.
+
+    Args:
+        vae_func (function): The create_vae function to create the VAE architecture.
+        train_data (np.array): The training data as a NumPy array.
+        val_data (np.array): The validation data as a NumPy array.
+        input_dim (int): The dimension of the input data.
+        latent_dim (int): The dimension of the latent space.
+        dropout_rate (float, optional): The dropout rate for the layers. Defaults to 0.01.
+        epochs (int, optional): The number of epochs to train the VAE. Defaults to 1000.
+        batch_size (int, optional): The batch size for training the VAE. Defaults to 32.
+        patience (int, optional): The number of epochs with no improvement before stopping training. Defaults to 50.
+        optimizer (Optimizer, optional): The optimizer to use for training the VAE. Defaults to RMSprop().
+        loss (Loss, optional): The loss function to use for training the VAE. Defaults to tf.keras.losses.MeanSquaredError().
+        monitor (str, optional): The metric to monitor for early stopping. Defaults to 'val_loss'.
+        optimizer_kwargs (dict, optional): A dictionary of keyword arguments to pass to the optimizer. Defaults to None.
+    Returns:
+        tuple: A tuple containing the fitted VAE, encoder, and decoder models as TensorFlow Model objects,
+               and the training history:
+            - vae (Model): The complete VAE model.
+            - encoder (Model): The encoder model.
+            - decoder (Model): The decoder model.
+            - history (History): The training history.
+    """
+    # Define VAE architecture
+    vae, encoder, _ = vae_func(input_dim, latent_dim, dropout_rate=dropout_rate)
+
+    # Create the decoder model
+    decoder_input = Input(shape=(latent_dim,))
+    decoder_output = vae.layers[-1](decoder_input)
+    for layer in reversed(vae.layers[:-1]):
+        if 'decoder' in layer.name:
+            decoder_output = layer(decoder_output)
+    decoder = Model(decoder_input, decoder_output)
+
+    # Create a new optimizer instance
+    if optimizer_kwargs is None:
+        optimizer_kwargs = {}
+    optimizer = optimizer(**optimizer_kwargs)
+
+    # Compile and train the VAE with early stopping
+    vae.compile(optimizer=optimizer, loss=loss)
+    early_stopping = EarlyStopping(monitor=monitor, patience=patience, restore_best_weights=True)
+    history = vae.fit(train_data, train_data,
+                      epochs=epochs,
+                      batch_size=batch_size,
+                      validation_data=(val_data, val_data),
+                      callbacks=[early_stopping])
+
+    return vae, encoder, decoder, history
+
+
+def plot_history(history, title=None, threshold=None, margin=0.1):
     """
     Plot the training and validation losses from the training history of an autoencoder.
 
@@ -325,4 +549,9 @@ def plot_history(history, title=None):
     plt.ylabel('Loss')
     plt.legend()
     plt.title(f'Training and Validation Losses\n{title}')
+    if threshold is not None:
+        plt.ylim(top=threshold)
+
+    min_loss = min(min(history.history['loss']), min(history.history['val_loss']))
+    plt.ylim(bottom=max(min_loss - margin, 0))
     plt.show()

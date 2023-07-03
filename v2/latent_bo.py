@@ -9,6 +9,7 @@ from tqdm import tqdm
 from skopt.plots import plot_objective
 from skopt.plots import plot_evaluations
 from matplotlib import pyplot as plt
+import seaborn as sns
 
 
 def objective_function(X, m, n, J_cb=None, noise=0):
@@ -19,7 +20,11 @@ def objective_function(X, m, n, J_cb=None, noise=0):
         M = np.linalg.inv(Z.T @ Z)
     except np.linalg.LinAlgError:
         return 1e10
-    return np.trace(M) + np.random.normal(0, noise)
+    result = np.trace(M) + np.random.normal(0, noise)
+    if result < 0:
+        return 1e10
+    else:
+        return result
 
 
 def objective_function_latent(latent_X, m, n, J_cb, decoder, noise=0):
@@ -28,34 +33,34 @@ def objective_function_latent(latent_X, m, n, J_cb, decoder, noise=0):
     return objective_function(X_next, m, n, J_cb=J_cb, noise=noise)
 
 
-def latent_auto_bo(runs, n_x, J_cb, decoder, latent_dim, n_iterations=50, random_seed=42):
-    # Adjust the search space to match the latent space dimension
+def latent_auto_bo(runs, n_x, J_cb, decoder, latent_dim, n_iterations=50, n_random_starts=5, random_seed=42, n_runs=1,
+                   noise=0, acq_func="LCB", initial_point_generator="random"):
+    all_results = []
     search_space = [Real(-1., 1.) for _ in range(latent_dim)]
+    for run in range(n_runs):
 
-    # Step 1: Run the initial optimization loop for 20 iterations
-    gp_result = gp_minimize(
-        lambda x: objective_function_latent(x, runs, sum(n_x), J_cb, decoder, noise=0),
-        search_space,
-        n_calls=n_iterations,
-        n_random_starts=5,
-        random_state=random_seed,
-        verbose=True,
-        acq_func="LCB",
-        initial_point_generator="random",
-    )
+        gp_result = gp_minimize(
+            lambda x: objective_function_latent(x, runs, sum(n_x), J_cb, decoder, noise=noise),
+            search_space,
+            n_calls=n_iterations,
+            n_random_starts=n_random_starts,
+            random_state=random_seed + run,
+            verbose=True,
+            acq_func=acq_func,
+            initial_point_generator=initial_point_generator,
+        )
 
-    # Get the optimal point in the latent space and objective function value for both methods
-    optimal_latent_X_gp = gp_result.x
-    optimal_y_gp = gp_result.fun
+        optimal_latent_X_gp = gp_result.x
+        optimal_y_gp = gp_result.fun
+        optimal_X_gp = decoder.predict(np.array(optimal_latent_X_gp).reshape(1, -1))
+        optimal_X_gp = optimal_X_gp.flatten()
 
-    # Decode the optimal points in the latent space back into the design matrix space
-    optimal_X_gp = decoder.predict(np.array(optimal_latent_X_gp).reshape(1, -1))
-    optimal_X_gp = optimal_X_gp.flatten()
+        optimal_matrix_gp = np.array(optimal_X_gp).reshape(runs, sum(n_x))
+        optimal_det_gp = optimal_y_gp
 
-    optimal_matrix_gp = np.array(optimal_X_gp).reshape(runs, sum(n_x))
-    optimal_det_gp = optimal_y_gp
+        all_results.append((optimal_matrix_gp, optimal_det_gp, gp_result))
 
-    return optimal_matrix_gp, optimal_det_gp, gp_result
+    return all_results
 
 
 def latent_manual_bo(runs, n_x, J_cb, decoder, latent_dim, n_iterations=200, random_seed=42):
@@ -98,14 +103,46 @@ def latent_manual_bo(runs, n_x, J_cb, decoder, latent_dim, n_iterations=200, ran
     return optimal_matrix, optimal_det
 
 
-def plot_convergence(result, title):
+def plot_convergence(results, title, threshold=None):
     plt.style.use('default')
     plt.figure(figsize=(8, 6))
-    min_values = np.minimum.accumulate(result.func_vals)  # Calculate the running minimum value
-    plt.plot(range(1, len(result.func_vals) + 1), min_values, marker="o")
+
+    lines = []
+    labels = []
+
+    # Generate a color palette with the same number of colors as the runs
+    colors = sns.color_palette("husl", n_colors=len(results))
+
+    # Calculate minimum values for all runs
+    all_min_values = [np.nanmin(np.minimum.accumulate(result[-1].func_vals)) for result in results]
+
+    # Find the index of the best run
+    best_run_idx = np.argmin(all_min_values)
+
+    for idx, result in enumerate(results):
+        min_values = np.minimum.accumulate(result[-1].func_vals)  # Calculate the running minimum value
+
+        if threshold is not None:
+            min_values = np.where(min_values < threshold, min_values, np.nan)  # Replace extreme values with NaNs
+
+        min_value = np.nanmin(min_values)  # Calculate the minimum value ignoring NaNs
+
+        # Assign a bright red color to the best run and duller colors to the other runs
+        color = "red" if idx == best_run_idx else tuple(0.5 * c for c in colors[idx])
+
+        line, = plt.plot(range(1, len(result[-1].func_vals) + 1), min_values, marker="o", color=color)
+
+        lines.append(line)
+        labels.append((f"Run {idx+1}", min_value))
+
+    # Sort the labels based on the minimum values
+    labels.sort(key=lambda x: x[1])
+    sorted_labels = [label[0] for label in labels]
+
     plt.xlabel("Number of calls")
     plt.ylabel("Minimum objective function value")
     plt.title(title)
+    plt.legend(lines, sorted_labels)
     plt.grid()
     plt.show()
 

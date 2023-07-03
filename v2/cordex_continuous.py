@@ -6,7 +6,7 @@ from cordex_discrete import cordex_discrete
 
 
 def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None, smooth_pen=0, ridge_pen=0,
-                      epochs=1000, estimator='MLE',
+                      epochs=1000, estimator='MLE', smoothness_lambda=0,
                       method='L-BFGS-B', random_start=False, final_pass=True, final_pass_iter=100,
                       main_bar=True, starting_bar=False, final_bar=False):
     """
@@ -67,6 +67,12 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
         X = Model_mat[:, f_coeffs:]
         Zetta = np.concatenate((ones, Gamma @ J_cb, X), axis=1)
         Mu = Zetta.T @ Zetta
+
+        # Good idea but it needs a PEA instead of a CEA to work properly
+        # smoothness_penalty = 0
+        # for r in range(Model_mat.shape[0]):
+        #     for i in range(1, Model_mat.shape[1]):
+        #         smoothness_penalty += np.abs(Model_mat[r, i] - Model_mat[r, i - 1])
 
         if R_0 is None and ridge_pen == 0:
             P = Mu
