@@ -42,7 +42,7 @@ def plot_basis(ax, T, w, f, run, size=35) -> None:
     ax.locator_params(axis='x', nbins=6)
 
 
-def subplot_results(sub_x, sub_y, T, results, style='fivethirtyeight', size=35, save=True) -> None:
+def subplot_results(sub_x, sub_y, T, results, style='fivethirtyeight', size=35, save=True, show=True) -> None:
     """
     Plots multiple subplots of step functions with knots and weights.
 
@@ -68,5 +68,7 @@ def subplot_results(sub_x, sub_y, T, results, style='fivethirtyeight', size=35, 
                 pass
             row_to_plot += 1
     if save:
-        plt.savefig('./results/myexp.png')
+        fig2 = plt.savefig('./results/myexp.png')
+    fig = plt.gcf()
     plt.show()
+    return fig

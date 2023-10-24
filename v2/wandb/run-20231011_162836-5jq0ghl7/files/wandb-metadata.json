@@ -1,0 +1,36 @@
+{
+    "os": "macOS-13.0-arm64-arm-64bit",
+    "python": "3.10.9",
+    "heartbeatAt": "2023-10-11T13:28:36.899680",
+    "startedAt": "2023-10-11T13:28:36.165611",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "v2/ae-vs-cordex.ipynb",
+    "codePathLocal": null,
+    "root": "/Users/thodorisladas/Documents/code/optidex",
+    "git": {
+        "remote": "https://github.com/TedOiler/optidex.git",
+        "commit": "08e9856a128b2c7d61575bb22dac21b5a4437a95"
+    },
+    "email": "ladas.thodoris@gmail.com",
+    "host": "Thodoriss-MacBook-Air.local",
+    "username": "thodorisladas",
+    "executable": "/Users/thodorisladas/miniforge3/envs/optidex/bin/python",
+    "cpu_count": 8,
+    "cpu_count_logical": 8,
+    "disk": {
+        "/": {
+            "total": 228.27386474609375,
+            "used": 208.47814559936523
+        }
+    },
+    "gpuapple": {
+        "type": "arm",
+        "vendor": "Apple"
+    },
+    "memory": {
+        "total": 8.0
+    }
+}
