@@ -38,14 +38,14 @@ from latent_bo import objective_function
 # HELPERS--------------------------------------
 def create_train_val_set_random(runs, n_x, scalars, optimality, J_cb,
                                 num_designs=1000, test_size=0.2, random_state=42, noise=None, max_iterations=100000,
-                                epsilon=1e-10):
+                                epsilon=1e-10, min=-1, max=1):
     design_matrices = []
     valid_count = 0
     for _ in tqdm(range(max_iterations)):
         if valid_count >= num_designs:
             break
 
-        candidate_matrix = np.random.uniform(-1, 1, size=(runs, n_x[0]))
+        candidate_matrix = np.random.uniform(min, max, size=(runs, n_x[0]))
 
         Z = np.hstack([np.ones((runs, 1)), candidate_matrix @ J_cb])
         ZTZ = Z.T @ Z
@@ -167,7 +167,7 @@ def combined_loss(alpha, loss_function, m, n, J_cb=None, noise=0):
 
 def create_autoencoder(input_dim, latent_dim,
                        latent_space_activation='tanh', output_activation='tanh',
-                       max_layers=None, alpha=0.0):
+                       max_layers=None, alpha=0.0, base=2):
     """
     Create an autoencoder with the given parameters. The autoencoder consists of an encoder and a decoder.
     The encoder compresses the input data into a lower-dimensional latent space, and the decoder reconstructs
@@ -195,7 +195,7 @@ def create_autoencoder(input_dim, latent_dim,
     """
 
     # Calculate the number of layers for the encoder and decoder based on the input dimension
-    num_layers = int(np.log2(input_dim / latent_dim))
+    num_layers = int(np.log(input_dim / latent_dim) / np.log(base))
 
     if max_layers is not None:
         num_layers = min(num_layers, max_layers)
@@ -237,7 +237,7 @@ def create_autoencoder(input_dim, latent_dim,
 
 def create_autoencoder_enhanced(input_dim, latent_dim, dropout_rate=0.1,
                                 latent_space_activation='tanh', output_activation='tanh', l1_reg=1e-5, l2_reg=1e-5,
-                                max_layers=None):
+                                max_layers=None, base=2):
     """
     Create an autoencoder with the given parameters. The autoencoder consists of an encoder and a decoder.
     The encoder compresses the input data into a lower-dimensional latent space, and the decoder reconstructs
@@ -265,7 +265,7 @@ def create_autoencoder_enhanced(input_dim, latent_dim, dropout_rate=0.1,
     """
 
     # Calculate the number of layers for the encoder and decoder based on the input dimension
-    num_layers = int(np.ceil(np.log2(input_dim / latent_dim)))
+    num_layers = int(np.ceil(np.log(input_dim / latent_dim) / np.log(base)))
 
     # Create the input layer
     input_layer = Input(shape=(input_dim,))
@@ -566,7 +566,7 @@ def fit_vae(vae_func, train_data, val_data, input_dim, latent_dim,
 
 
 # PLOTTING-------------------------------------
-def plot_history(history, title=None, threshold=None, margin=0.1):
+def plot_history(history, title=None, threshold=None, margin=0.1, style='grayscale'):
     """
     Plot the training and validation losses from the training history of an autoencoder.
 
@@ -577,9 +577,14 @@ def plot_history(history, title=None, threshold=None, margin=0.1):
         None
     """
     # Plot the training and validation losses
-    plt.style.use('default')
-    plt.plot(history.history['loss'], label='Training Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
+    if style == 'grayscale':
+        # plt.style.use('grayscale')
+        plt.plot(history.history['loss'], label='Training Loss', linestyle='-', marker='o', color='black')
+        plt.plot(history.history['val_loss'], label='Validation Loss', linestyle='--', marker='x', color='black')
+    else:
+        plt.style.use('default')
+        plt.plot(history.history['loss'], label='Training Loss')
+        plt.plot(history.history['val_loss'], label='Validation Loss')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.legend()
@@ -683,5 +688,7 @@ def optimize_latent_variables(best_latent_dim, decoder, run, nx, J_cb, n_calls=8
     optimal_latent_var = res.x
     optimal_cr = res.fun
     optimal_des = decoder.predict(np.array(optimal_latent_var).reshape(1, -1)).reshape(run, sum(nx))
+    search_history = res.x_iters
+    eval_history = res.func_vals
 
-    return optimal_latent_var, optimal_cr, optimal_des
+    return optimal_latent_var, optimal_cr, optimal_des, search_history, eval_history

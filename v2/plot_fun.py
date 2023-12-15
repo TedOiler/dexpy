@@ -24,7 +24,7 @@ def plot_basis(ax, T, w, f, run, size=35) -> None:
         None
     """
 
-    ax.plot(np.asarray(T, float), [f(t, w=w) for t in T], zorder=-1)
+    ax.plot(np.asarray(T, float), [f(t, w=w) for t in T], color='black', zorder=-1)
     ax.set_ylim(-1.2, 1.2)
     ax.set_xticks([0, 0.5, 1])
     ax.set_xticklabels(['0', '.5', '1'])
@@ -36,13 +36,13 @@ def plot_basis(ax, T, w, f, run, size=35) -> None:
         len(w) - 1)]  # we want to exclude the first and last points, as these will be drawn with a different colour
 
     # Draw knots
-    ax.scatter(knots, weights, color="darkorange", s=size, zorder=1)  # internal knots
-    ax.scatter([0, 1], [w[0], w[len(w) - 1]], color="black", s=size, zorder=1)  # support knots
+    ax.scatter(knots, weights, edgecolor="black", facecolors='none', s=size, zorder=1)  # internal knots with empty circles
+    ax.scatter([0, 1], [w[0], w[len(w) - 1]], edgecolor="black", facecolors='none', s=size, zorder=1)  # support knots with empty circles
     ax.locator_params(axis='y', nbins=3)
     ax.locator_params(axis='x', nbins=6)
 
 
-def subplot_results(sub_x, sub_y, T, results, style='fivethirtyeight', size=35, save=True, show=True) -> None:
+def subplot_results(sub_x, sub_y, T, results, style='grayscale', size=35, save=True, show=True) -> None:
     """
     Plots multiple subplots of step functions with knots and weights.
 
@@ -56,7 +56,7 @@ def subplot_results(sub_x, sub_y, T, results, style='fivethirtyeight', size=35, 
     Returns:
         None
     """
-    plt.style.use(style)
+    # plt.style.use(style)
     fig, ax = plt.subplots(sub_x, sub_y, figsize=(sub_x*sub_y,  sub_x*sub_y), tight_layout=True)
     plt.subplots_adjust(left=0.125, bottom=0.1, right=0.9, top=0.9, wspace=0.2, hspace=0.3)
     row_to_plot = 0
@@ -72,3 +72,4 @@ def subplot_results(sub_x, sub_y, T, results, style='fivethirtyeight', size=35, 
     fig = plt.gcf()
     plt.show()
     return fig
+
