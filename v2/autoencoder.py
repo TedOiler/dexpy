@@ -37,15 +37,15 @@ from latent_bo import objective_function
 
 # HELPERS--------------------------------------
 def create_train_val_set_random(runs, n_x, scalars, optimality, J_cb,
-                                num_designs=1000, test_size=0.2, random_state=42, noise=None, max_iterations=100000,
-                                epsilon=1e-10, min=-1, max=1):
+                                num_designs=1000, test_size=0.2, random_state=42, noise=None, max_iterations=1e5,
+                                epsilon=1e-10, scale=1):
     design_matrices = []
     valid_count = 0
     for _ in tqdm(range(max_iterations)):
         if valid_count >= num_designs:
             break
 
-        candidate_matrix = np.random.uniform(min, max, size=(runs, n_x[0]))
+        candidate_matrix = np.random.uniform(-scale, scale, size=(runs, n_x[0]))
 
         Z = np.hstack([np.ones((runs, 1)), candidate_matrix @ J_cb])
         ZTZ = Z.T @ Z
@@ -69,10 +69,10 @@ def create_train_val_set_random(runs, n_x, scalars, optimality, J_cb,
 
         x_train, x_val, y_train, y_val = train_test_split(noisy_designs, normalized_designs, test_size=test_size,
                                                           random_state=random_state)
-        return x_train, x_val, y_train, y_val
+        return x_train/scale, x_val/scale, y_train/scale, y_val/scale
     else:
         train_data, val_data = train_test_split(normalized_designs, test_size=test_size, random_state=random_state)
-        return train_data, val_data
+        return train_data/scale, val_data/scale
 
 
 def create_train_val_set(runs, n_x, scalars, optimality, J_cb,
