@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 
-from basis import step
+from .basis import step
 
 
 # plt.style.use('default')
