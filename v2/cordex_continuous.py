@@ -62,17 +62,17 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
             ValueError: If the specified optimality criterion is not one of 'D' or 'A'.
         """
 
-        Model_mat[run, feat] = x
-        Gamma = Model_mat[:, :f_coeffs]
-        X = Model_mat[:, f_coeffs:]
+        best_design[run, feat] = x
+        Gamma = best_design[:, :f_coeffs]
+        X = best_design[:, f_coeffs:]
         Zetta = np.concatenate((ones, Gamma @ J_cb, X), axis=1)
         Mu = Zetta.T @ Zetta
 
         # Good idea but it needs a PEA instead of a CEA to work properly
         # smoothness_penalty = 0
-        # for r in range(Model_mat.shape[0]):
-        #     for i in range(1, Model_mat.shape[1]):
-        #         smoothness_penalty += np.abs(Model_mat[r, i] - Model_mat[r, i - 1])
+        # for r in range(best_design.shape[0]):
+        #     for i in range(1, best_design.shape[1]):
+        #         smoothness_penalty += np.abs(best_design[r, i] - best_design[r, i - 1])
 
         if R_0 is None and ridge_pen == 0:
             P = Mu
@@ -114,11 +114,11 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
 
     def check(obj):
         if optimality in ['A']:
-            return 0 <= obj < Best_obj
-            # return obj < Best_obj
+            return 0 <= obj < best_optimality_value
+            # return obj < best_optimality_value
         elif optimality in ['D']:
-            return 0 <= obj < Best_obj
-            # return obj < Best_obj
+            return 0 <= obj < best_optimality_value
+            # return obj < best_optimality_value
 
     def run_checks():
         if method not in ['Nelder-Mead', 'Powell', 'TNC', 'L-BFGS-B']:
@@ -133,48 +133,48 @@ def cordex_continuous(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None
             raise ValueError(f"Smoothness matrix is provided, but smoothness penalty is set to {smooth_pen}.")
 
     run_checks()
-    Best_des = None
-    Best_obj = np.inf
+    best_design = None
+    best_optimality_value = np.inf
     f_coeffs = sum(f_list) + 1
     ones = np.ones((runs, 1))
-    Model_mat = None
+    best_design = None
 
     for _ in tqdm(range(epochs), disable=not main_bar):
         objective_value = np.inf
         if random_start:
             Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=f_list, scalars=scalars)
-            Model_mat = np.hstack((Gamma_, X_))
+            best_design = np.hstack((Gamma_, X_))
         else:
-            Model_mat, _ = cordex_discrete(runs=runs, f_list=f_list, scalars=scalars, levels=[-1, 1], epochs=10,
+            best_design, _ = cordex_discrete(runs=runs, f_list=f_list, scalars=scalars, levels=[-1, 1], epochs=10,
                                            optimality=optimality, J_cb=J_cb, disable_bar=not starting_bar)
         for run in range(runs):
             for feat in range(f_coeffs + scalars - 1):
-                res = minimize(objective, Model_mat[run, feat], method=method, bounds=[(-1, 1)])
-                if res.x is not None:
-                    Model_mat[run, feat] = res.x
-                objective_value = objective(res.x)
+                result = minimize(objective, best_design[run, feat], method=method, bounds=[(-1, 1)])
+                if result.x is not None:
+                    best_design[run, feat] = result.x
+                objective_value = objective(result.x)
 
         if check(objective_value):
-            Best_obj = objective_value
-            Best_des = Model_mat
+            best_optimality_value = objective_value
+            best_design = best_design
 
     if final_pass:
         if final_bar:
             print("Executing final pass...")
         for _ in tqdm(range(final_pass_iter), disable=not final_bar):
-            objective_value = Best_obj
-            for run in range(Model_mat.shape[0]):
-                for feat in range(Model_mat.shape[1]):
-                    res = minimize(objective, Model_mat[run, feat], method=method, bounds=[(-1, 1)])
-                    Model_mat[run, feat] = res.x
-                    objective_value = objective(res.x)
+            objective_value = best_optimality_value
+            for run in range(best_design.shape[0]):
+                for feat in range(best_design.shape[1]):
+                    result = minimize(objective, best_design[run, feat], method=method, bounds=[(-1, 1)])
+                    best_design[run, feat] = result.x
+                    objective_value = objective(result.x)
                     if np.isclose(objective_value, 0, atol=1e-15):
                         objective_value = 0
             if check(objective_value):
-                Best_obj = objective_value
-                Best_des = Model_mat
+                best_optimality_value = objective_value
+                best_design = best_design
 
-    return Best_des, np.abs(Best_obj)
+    return best_design, np.abs(best_optimality_value)
 
 
 def cordex_continuous_hybrid(runs, f_list, scalars, optimality='A', J_cb=None, R_0=None, smooth_pen=0, ridge_pen=0,

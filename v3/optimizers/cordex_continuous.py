@@ -9,6 +9,7 @@ parent_dir = current_dir.parent
 sys.path.append(str(parent_dir))
 from utilities.gen_rand_design import gen_rand_design_m
 from models.f_on_f import FunctionOnFunctionModel
+from models.s_on_f import ScalarOnFunctionModel
 from tqdm import tqdm
 
 
@@ -17,40 +18,40 @@ class CordexContinuous(BaseOptimizer):
         super().__init__(model)
 
     def optimize(self, runs, nx, scalars=0, epochs=1000, final_pass_iter=100):
+
+        if isinstance(self.model, FunctionOnFunctionModel):
+            objective = lambda x: self.model.compute_objective_input(x, i, j, model_matrix, runs, nx)
+        elif isinstance(self.model, ScalarOnFunctionModel):
+            objective = lambda x: self.model.compute_objective_input(x, i, j, model_matrix, sum(nx) + scalars)
+
         best_design = None
-        best_objective_value = np.inf
+        best_optimality_value = np.inf
 
         for _ in tqdm(range(epochs)):
             Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=nx, scalars=scalars)
-            DesignMatrix = Gamma_
-            for i in range(DesignMatrix.shape[0]):
-                for j in range(DesignMatrix.shape[1]):
-                    if isinstance(self.model, FunctionOnFunctionModel):
-                        # Adjust the objective function call for FunctionOnFunctionModel
-                        objective = lambda x: self.model.compute_objective(DesignMatrix, runs, nx)
-                    else:
-                        # Call for ScalarOnFunctionModel remains as before
-                        objective = lambda x: self.model.compute_objective(DesignMatrix, sum(nx) + scalars)
-                    result = minimize(objective, DesignMatrix[i, j], method='L-BFGS-B', bounds=[(-1, 1)])
+            model_matrix = Gamma_
+            for i in range(model_matrix.shape[0]):
+                for j in range(model_matrix.shape[1]):
+                    result = minimize(objective, model_matrix[i, j], method='L-BFGS-B', bounds=[(-1, 1)])
                     if result.x is not None:
-                        DesignMatrix[i, j] = result.x
-                    current_value = objective(result.x)
+                        model_matrix[i, j] = result.x
+                    current_optimality_value = objective(result.x)
 
-            if 0 <= current_value < best_objective_value:
-                best_objective_value = current_value
-                best_design = DesignMatrix
+            if 0 <= current_optimality_value < best_optimality_value:
+                best_optimality_value = current_optimality_value
+                best_design = model_matrix
 
         if final_pass_iter > 0:
             for _ in tqdm(range(final_pass_iter)):
-                current_value = best_objective_value
-                for i in range(DesignMatrix.shape[0]):
-                    for j in range(DesignMatrix.shape[1]):
-                        result = minimize(objective, DesignMatrix[i, j], method='L-BFGS-B', bounds=[(-1, 1)])
+                current_optimality_value = best_optimality_value
+                for i in range(model_matrix.shape[0]):
+                    for j in range(model_matrix.shape[1]):
+                        result = minimize(objective, model_matrix[i, j], method='L-BFGS-B', bounds=[(-1, 1)])
                         if result.x is not None:
-                            DesignMatrix[i, j] = result.x
-                        current_value = objective(result.x)
-                if 0 <= current_value < best_objective_value:
-                    best_objective_value = current_value
-                    best_design = DesignMatrix
+                            model_matrix[i, j] = result.x
+                        current_optimality_value = objective(result.x)
+                if 0 <= current_optimality_value < best_optimality_value:
+                    best_optimality_value = current_optimality_value
+                    best_design = model_matrix
 
-        return best_design, np.abs(best_objective_value)
+        return best_design, np.abs(best_optimality_value)

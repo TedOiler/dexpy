@@ -4,7 +4,7 @@ import numpy as np
 
 class ScalarOnFunctionModel(BaseModel):
     def __init__(self, J_cb):
-        self.J_cb = J_cb  # Matrix representing the integral of basis functions multiplied together
+        self.J_cb = J_cb
 
     def compute_objective(self, Model_mat, f_coeffs):
         ones = np.ones((Model_mat.shape[0], 1))
@@ -17,8 +17,10 @@ class ScalarOnFunctionModel(BaseModel):
         except np.linalg.LinAlgError:
             return np.nan
 
-        # A-optimality: Trace of the inverse of the information matrix
         value = np.trace(P_inv)
 
-        # In practice, you might want to ensure 'value' is valid (e.g., not NaN or Inf) before returning
         return value
+
+    def compute_objective_input(self, x, i, j, Model_mat, f_coeffs):
+        Model_mat[i, j] = x
+        return self.compute_objective(Model_mat, f_coeffs)

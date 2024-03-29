@@ -21,3 +21,7 @@ class FunctionOnFunctionModel(BaseModel):
 
         # In practice, you might want to ensure 'value' is valid (e.g., not NaN or Inf) before returning
         return value if np.isfinite(value) else np.nan
+
+    def compute_objective_input(self, x, i, j, Gamma_, N, Kx):
+        Gamma_[i, j] = x
+        return self.compute_objective(Gamma_, N, Kx)
