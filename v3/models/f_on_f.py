@@ -12,9 +12,9 @@ class FunctionOnFunctionModel(BaseModel):
         Gamma = np.hstack((np.ones((N, 1)), Gamma_))
         Z = Gamma @ self.J_CH
         ZtZ_inv = np.linalg.inv(Z.T @ Z)
-        L1 = ZtZ_inv @ Z.T
-        L = np.kron(self.I_theta, L1)
-        Covar = L @ self.Sigma @ L.T
+        F1 = (Z @ ZtZ_inv).T
+        F = np.kron(self.I_theta, F1)
+        Covar = F @ self.Sigma @ F.T
 
         # A-optimality: Trace of the covariance matrix
         value = np.trace(Covar)

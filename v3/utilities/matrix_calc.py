@@ -38,10 +38,12 @@ def calc_Sigma(Kx, Ky, N, decay=0):
 
 
 def calc_J_CH(Kx, Kb):
-    J_chs = [Jcb(*[calc_basis_matrix(x_basis=x, b_basis=b) for x, b in zip(x_row, b_row)]) for x_row, b_row in zip(Kx, Kb)]
+    J_chs = [Jcb(*[calc_basis_matrix(x_basis=x, b_basis=b) for x, b in zip(x_row, b_row)]) for x_row, b_row in
+             zip(Kx, Kb)]
     bases = [1] + J_chs
     return block_diag(*bases)
 
 
 def calc_I_theta(Kx, Ky):
-    return np.eye((len(Kx)+1)*Ky, dtype=float)
+    return np.kron(np.ones(len(Kx) + 1), np.eye(Ky))
+    # return np.eye((len(Kx)+1)*Ky, dtype=float) # old return statement

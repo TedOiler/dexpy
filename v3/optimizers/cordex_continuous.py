@@ -20,11 +20,6 @@ class CordexContinuous(BaseOptimizer):
         best_design = None
         best_objective_value = np.inf
 
-        def objective(x):
-            temp_design = DesignMatrix.copy()
-            temp_design[i, j] = x
-            return self.model.compute_objective(temp_design, sum(nx))
-
         for _ in tqdm(range(epochs)):
             Gamma_, X_ = gen_rand_design_m(runs=runs, f_list=nx, scalars=scalars)
             DesignMatrix = Gamma_
@@ -45,6 +40,17 @@ class CordexContinuous(BaseOptimizer):
                 best_objective_value = current_value
                 best_design = DesignMatrix
 
-        # Optionally, a final pass to refine the optimization further
+        if final_pass_iter > 0:
+            for _ in tqdm(range(final_pass_iter)):
+                current_value = best_objective_value
+                for i in range(DesignMatrix.shape[0]):
+                    for j in range(DesignMatrix.shape[1]):
+                        result = minimize(objective, DesignMatrix[i, j], method='L-BFGS-B', bounds=[(-1, 1)])
+                        if result.x is not None:
+                            DesignMatrix[i, j] = result.x
+                        current_value = objective(result.x)
+                if 0 <= current_value < best_objective_value:
+                    best_objective_value = current_value
+                    best_design = DesignMatrix
 
         return best_design, np.abs(best_objective_value)
