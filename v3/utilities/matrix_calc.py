@@ -45,5 +45,6 @@ def calc_J_CH(Kx, Kb):
 
 
 def calc_I_theta(Kx, Ky):
-    return np.kron(np.ones(len(Kx) + 1), np.eye(Ky))
+    # return np.eye(Ky, dtype=float) # Mostly likely correct expression, need to figure out the correct dimensions of all the matrices
+    return np.kron(np.ones(len(Kx) + 1), np.eye(Ky)) # second attempt to fix the error
     # return np.eye((len(Kx)+1)*Ky, dtype=float) # old return statement
